@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deploy automático (CI/CD) — MOTOR::AFILIADO</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--void:#0E1116;--panel:#161B22;--panel2:#1B222B;--line:#2A333F;--ink:#E9EFF5;--ink2:#AEBAC6;--ink3:#7C8896;--signal:#F5A524;--ok:#25D07B;--danger:#F0503A;--tg:#3B9EFF;--warn:#E3B341;}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--void);color:var(--ink);font-family:"IBM Plex Sans",system-ui,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.65}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+.topbar{position:sticky;top:0;z-index:20;background:rgba(11,14,18,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:13px 22px;display:flex;align-items:center;gap:12px}
+.topbar .led{width:9px;height:9px;border-radius:50%;background:var(--signal)}
+.topbar b{font-family:"IBM Plex Mono",monospace;font-size:13px;letter-spacing:.03em}
+.topbar .doc{color:var(--ink3);font-family:"IBM Plex Mono",monospace;font-size:12px}
+.topbar a{margin-left:auto;color:var(--signal);text-decoration:none;font-family:"IBM Plex Mono",monospace;font-size:12px}
+.wrap{max-width:900px;margin:0 auto;padding:34px 24px 80px}
+h1,h2,h3,h4{font-family:"Bricolage Grotesque","IBM Plex Sans",sans-serif;font-weight:800;line-height:1.15;letter-spacing:-.01em;margin:1.6em 0 .5em}
+h1{font-size:clamp(28px,4vw,42px);margin-top:.2em}
+h2{font-size:26px;border-bottom:1px solid var(--line);padding-bottom:8px}
+h3{font-size:20px;color:var(--signal)}
+h4{font-size:16px}
+p{margin:.7em 0}
+a{color:var(--signal)}
+code{font-family:"IBM Plex Mono",monospace;font-size:.88em;background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:var(--signal)}
+pre{background:#0B0E12;border:1px solid var(--line);border-radius:10px;padding:16px;overflow-x:auto}
+pre code{background:none;border:0;padding:0;color:var(--ink2);font-size:13px}
+blockquote{margin:1em 0;border-left:3px solid var(--signal);background:rgba(245,165,36,.05);padding:10px 16px;color:var(--ink2);border-radius:0 8px 8px 0}
+ul,ol{padding-left:24px}
+li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1em 0;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:9px 13px;text-align:left;font-size:14.5px;vertical-align:top}
+th{background:var(--panel2);font-family:"IBM Plex Mono",monospace;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3)}
+hr{border:0;border-top:1px solid var(--line);margin:2em 0}
+.toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 20px;margin:0 0 30px}
+.toc>ul{padding-left:18px}
+.toc a{text-decoration:none;color:var(--ink2)}
+.toc a:hover{color:var(--signal)}
+strong{color:var(--ink)}
+.doc-li{list-style:none;margin-left:-24px;padding-left:2px;display:flex;gap:10px;align-items:flex-start}
+.doc-li>input{margin-top:5px;flex:none;width:16px;height:16px;accent-color:var(--signal);cursor:pointer}
+.doc-li.done>span{opacity:.5;text-decoration:line-through}
+</style></head>
+<body>
+<div class="topbar"><span class="led"></span><b>MOTOR::AFILIADO</b><span class="doc">Deploy automático (CI/CD)</span><a href="index.html">todos os docs ↗</a></div>
+<div class="wrap"><div class="toc"><span class="toctitle">Índice</span><ul>
+<li><a href="#deploy-automatico-cicd-setup-de-uma-vez">Deploy automático (CI/CD) — setup de UMA vez</a><ul>
+<li><a href="#pre-requisito-o-git-push-funcionar-uma-vez">Pré-requisito: o git push funcionar (uma vez)</a></li>
+<li><a href="#passo-1-gerar-uma-chave-de-deploy-no-seu-pc">Passo 1 — Gerar uma chave de deploy (no seu PC)</a></li>
+<li><a href="#passo-2-autorizar-a-chave-no-vps">Passo 2 — Autorizar a chave no VPS</a></li>
+<li><a href="#passo-3-preparar-a-pasta-no-vps-uma-vez">Passo 3 — Preparar a pasta no VPS (uma vez)</a></li>
+<li><a href="#passo-4-cadastrar-os-segredos-no-github">Passo 4 — Cadastrar os segredos no GitHub</a></li>
+<li><a href="#passo-5-pronto">Passo 5 — Pronto</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<h1 id="deploy-automatico-cicd-setup-de-uma-vez">Deploy automático (CI/CD) — setup de UMA vez</h1>
+<p>Depois deste setup, o fluxo vira: <strong>você (ou eu preparo o commit) → <code>git push</code> → deploy sozinho no VPS.</strong>
+Sem SSH na mão, sem <code>docker compose</code> na mão, sem token de mão em mão. Os segredos ficam
+no GitHub (criptografados), nunca no chat nem comigo.</p>
+<h2 id="pre-requisito-o-git-push-funcionar-uma-vez">Pré-requisito: o <code>git push</code> funcionar (uma vez)</h2>
+<p>Use o GitHub CLI pra parar de brigar com token/credential manager:</p>
+<pre><code class="language-bash">winget install GitHub.cli        # ou baixe em cli.github.com
+gh auth login                    # GitHub.com &gt; HTTPS &gt; login pelo navegador
+git -C &quot;D:/grupo-de-ofertas/app&quot; push -u origin main
+</code></pre>
+<h2 id="passo-1-gerar-uma-chave-de-deploy-no-seu-pc">Passo 1 — Gerar uma chave de deploy (no seu PC)</h2>
+<pre><code class="language-bash">ssh-keygen -t ed25519 -f deploy_key -N &quot;&quot;
+# gera:  deploy_key (privada)  +  deploy_key.pub (pública)
+</code></pre>
+<h2 id="passo-2-autorizar-a-chave-no-vps">Passo 2 — Autorizar a chave no VPS</h2>
+<p>Adicione a <strong>pública</strong> ao VPS (no usuário que vai fazer o deploy — root ou um <code>deploy</code>):</p>
+<pre><code class="language-bash">ssh SEU_USUARIO@IP_DO_VPS &quot;mkdir -p ~/.ssh &amp;&amp; chmod 700 ~/.ssh &amp;&amp; cat &gt;&gt; ~/.ssh/authorized_keys&quot; &lt; deploy_key.pub
+</code></pre>
+<h2 id="passo-3-preparar-a-pasta-no-vps-uma-vez">Passo 3 — Preparar a pasta no VPS (uma vez)</h2>
+<pre><code class="language-bash">ssh SEU_USUARIO@IP_DO_VPS
+  mkdir -p /opt/motor-afiliados &amp;&amp; cd /opt/motor-afiliados
+  # crie o .env aqui (fica SÓ no servidor; o CI nunca sobrescreve):
+  nano .env    # POSTGRES_PASSWORD, API_DOMAIN=cupom.trakads.cloud, PUBLIC_APP_URL, SHOPEE_APP_*
+  chmod 600 .env
+</code></pre>
+<p>(A Evolution e a OpenAI você configura pela aba <strong>Config</strong> do painel depois — não precisam no <code>.env</code>.)</p>
+<h2 id="passo-4-cadastrar-os-segredos-no-github">Passo 4 — Cadastrar os segredos no GitHub</h2>
+<p>No repositório → <strong>Settings → Secrets and variables → Actions → New repository secret</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Secret</th>
+<th>Valor</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>VPS_HOST</code></td>
+<td>IP do seu VPS</td>
+</tr>
+<tr>
+<td><code>VPS_USER</code></td>
+<td><code>root</code> (ou o usuário <code>deploy</code>)</td>
+</tr>
+<tr>
+<td><code>VPS_SSH_KEY</code></td>
+<td>o conteúdo da chave <strong>privada</strong> <code>deploy_key</code> (colar inteiro)</td>
+</tr>
+<tr>
+<td><code>VPS_PORT</code></td>
+<td><em>(opcional)</em> porta do SSH, se não for 22</td>
+</tr>
+<tr>
+<td><code>PROJECT_DIR</code></td>
+<td><em>(opcional)</em> <code>/opt/motor-afiliados</code> (é o padrão)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="passo-5-pronto">Passo 5 — Pronto</h2>
+<p>A partir daqui, todo <code>git push</code> na <code>main</code> dispara o workflow (<code>.github/workflows/deploy.yml</code>),
+que envia o código (rsync, preservando o <code>.env</code> do servidor) e roda <code>docker compose up -d --build</code>.
+Acompanhe em <strong>Actions</strong> no GitHub. Redeploy manual, se precisar: <code>./deploy.sh</code> no VPS.</p>
+<blockquote>
+<p>Segurança: a chave de deploy tem escopo só do que você autorizar no VPS. Ideal é criar um
+usuário <code>deploy</code> (em vez de root) com acesso só à pasta do projeto e ao docker.</p>
+</blockquote></div>
+
+</body></html>
