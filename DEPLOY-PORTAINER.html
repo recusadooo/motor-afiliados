@@ -50,7 +50,7 @@ strong{color:var(--ink)}
 <li><a href="#passo-1-criar-o-stack">Passo 1 — Criar o Stack</a></li>
 <li><a href="#passo-2-variaveis-de-ambiente-na-aba-do-stack">Passo 2 — Variáveis de ambiente (na aba do stack)</a></li>
 <li><a href="#passo-3-conferir-que-subiu">Passo 3 — Conferir que subiu</a></li>
-<li><a href="#passo-4-ligar-seu-reverse-proxy-no-app">Passo 4 — Ligar seu reverse proxy no app</a></li>
+<li><a href="#passo-4-ligar-o-traefik-no-app">Passo 4 — Ligar o Traefik no app</a></li>
 <li><a href="#passo-5-testar-e-configurar">Passo 5 — Testar e configurar</a></li>
 <li><a href="#atualizar-depois">Atualizar depois</a></li>
 <li><a href="#sem-reverse-proxy-caso-raro">Sem reverse proxy? (caso raro)</a></li>
@@ -100,9 +100,26 @@ API na porta interna <code>3000</code>. As variáveis você põe na <strong>inte
 <td><code>PUBLIC_APP_URL</code></td>
 <td><code>https://cupom.trakads.cloud</code></td>
 </tr>
+<tr>
+<td><code>API_DOMAIN</code></td>
+<td><code>cupom.trakads.cloud</code></td>
+</tr>
+<tr>
+<td><code>TRAEFIK_ENTRYPOINT</code></td>
+<td>o entrypoint HTTPS do seu Traefik (ex.: <code>websecure</code> ou <code>https</code>)</td>
+</tr>
+<tr>
+<td><code>TRAEFIK_CERTRESOLVER</code></td>
+<td>o resolver ACME do seu Traefik (ex.: <code>letsencrypt</code>)</td>
+</tr>
+<tr>
+<td><code>TRAEFIK_NETWORK</code></td>
+<td>a rede Docker do seu Traefik (ver Passo 4)</td>
+</tr>
 </tbody>
 </table>
-<p><em>(Evolution e OpenAI NÃO vão aqui — você configura depois na aba </em><em>Config</em><em> do painel.)</em></p>
+<p><em>(Evolution e OpenAI NÃO vão aqui — você configura depois na aba </em><em>Config</em><em> do painel.)</em>
+<em>(Não sabe os 3 valores do Traefik? </em><em>Copie dos labels de um serviço que você já expõe pelo Traefik</em><em> — Evolution/n8n — no Portainer, na aba Labels daquele container. Ou me mande um desses labels que eu te digo os valores exatos.)</em></p>
 <p>Clique <strong>Deploy the stack</strong>. O Portainer clona o repo, faz o build da imagem e sobe
 <code>postgres</code>, <code>redis</code>, <code>api</code>, <code>worker</code>.</p>
 <h2 id="passo-3-conferir-que-subiu">Passo 3 — Conferir que subiu</h2>
@@ -110,23 +127,29 @@ API na porta interna <code>3000</code>. As variáveis você põe na <strong>inte
 <pre><code class="language-bash">curl -s http://127.0.0.1:3000/health      # deve devolver {&quot;ok&quot;:true,...}
 </code></pre>
 <p>(ou veja os logs do container <code>api</code> no Portainer — deve dizer "API ouvindo").</p>
-<h2 id="passo-4-ligar-seu-reverse-proxy-no-app">Passo 4 — Ligar seu reverse proxy no app</h2>
-<p>O app roda; falta seu proxy mandar <code>cupom.trakads.cloud</code> pra ele. O container da API
-fica na rede <code>motor-afiliados_default</code> (criada pelo stack), com nome tipo
-<code>motor-afiliados-api-1</code>, porta <code>3000</code>.</p>
-<p><strong>Se o proxy é Nginx Proxy Manager (o mais comum):</strong>
-1. No Portainer → Containers → seu container do <strong>NPM</strong> → <strong>Join a network</strong> → selecione <strong><code>motor-afiliados_default</code></strong>. (Isso deixa o NPM enxergar a API pelo nome.)
-2. No NPM → <strong>Proxy Hosts</strong> → <em>Add Proxy Host</em>:
-   - Domain Names: <code>cupom.trakads.cloud</code>
-   - Forward Hostname/IP: <code>motor-afiliados-api-1</code>  · Forward Port: <code>3000</code>
-   - Ligue <strong>Websockets Support</strong> e <strong>Block Common Exploits</strong>
-   - Aba <strong>SSL</strong>: <em>Request a new SSL Certificate</em> + <em>Force SSL</em> → Save</p>
-<p><strong>Se o proxy é Traefik / Caddy / nginx puro:</strong> aponte <code>cupom.trakads.cloud</code> → o
-container <code>motor-afiliados-api-1:3000</code> (mesma rede) <strong>com WebSocket</strong>. Me diz qual é que
-eu te dou o bloco exato.</p>
+<h2 id="passo-4-ligar-o-traefik-no-app">Passo 4 — Ligar o Traefik no app</h2>
+<p>Com Traefik é por <strong>labels</strong> (o compose já traz, controlados pelas variáveis do Passo 2).
+Falta só o Traefik <strong>enxergar</strong> o container da API na rede Docker.</p>
+<p><strong>4.1 — Descobrir a rede do seu Traefik:</strong> no Portainer → Containers → o container do
+<strong>Traefik</strong> → aba <strong>Network</strong> (ou Inspect). É a rede por onde ele fala com Evolution/n8n
+(nome comum: <code>traefik</code>, <code>proxy</code>, ou similar). Ponha esse nome em <strong><code>TRAEFIK_NETWORK</code></strong> (Passo 2).</p>
+<p><strong>4.2 — Colocar a API na mesma rede do Traefik.</strong> Duas formas:
+- <strong>Simples (Portainer):</strong> Containers → <code>motor-afiliados-api-1</code> → <strong>Join a network</strong> → selecione a rede do Traefik. (E confira que <code>TRAEFIK_NETWORK</code> tem esse nome.)
+- Ou o Traefik entra na rede do stack: Containers → container do Traefik → <strong>Join a network</strong> → <code>motor-afiliados_default</code>, e ponha <code>TRAEFIK_NETWORK=motor-afiliados_default</code>.</p>
+<p><strong>4.3 — Entrypoint e certresolver:</strong> os labels usam <code>TRAEFIK_ENTRYPOINT</code> (o entrypoint
+<code>:443</code>, ex. <code>websecure</code>) e <code>TRAEFIK_CERTRESOLVER</code> (o ACME, ex. <code>letsencrypt</code>). <strong>Copie os
+valores exatos</strong> de um serviço que você já expõe pelo Traefik (olhe os labels da Evolution/n8n):</p>
+<pre><code>traefik.http.routers.&lt;algo&gt;.entrypoints=SEU_ENTRYPOINT
+traefik.http.routers.&lt;algo&gt;.tls.certresolver=SEU_RESOLVER
+</code></pre>
+<p>Se não usar <code>certresolver</code> por label (ex.: TLS definido no traefik.yml), deixe
+<code>TRAEFIK_CERTRESOLVER</code> como está — se der erro de cert, a gente ajusta.</p>
+<p>Pronto: ao dar deploy/redeploy do stack, o Traefik já roteia <code>cupom.trakads.cloud</code> → a API
+(porta 3000) com TLS.</p>
 <blockquote>
-<p>Alternativa (proxy fora do Docker): a API também está publicada em <code>127.0.0.1:3000</code>
-no host — aponte seu proxy pra lá.</p>
+<p>Dica: me mande <strong>os labels do Traefik de um serviço seu que já funciona</strong> (Evolution ou
+n8n) que eu te devolvo os 3 valores (<code>TRAEFIK_ENTRYPOINT</code>, <code>TRAEFIK_CERTRESOLVER</code>,
+<code>TRAEFIK_NETWORK</code>) já certinhos pra colar.</p>
 </blockquote>
 <h2 id="passo-5-testar-e-configurar">Passo 5 — Testar e configurar</h2>
 <ul>

@@ -14,5 +14,6 @@ COPY package.json package-lock.json* ./
 RUN npm install --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY public ./public
+COPY db ./db
 # O entrypoint real (api ou worker) vem do 'command' no docker-compose.
 CMD ["node", "dist/api.js"]

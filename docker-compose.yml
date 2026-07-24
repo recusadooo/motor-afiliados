@@ -1,49 +1,38 @@
-# Motor de Afiliados — orquestração no VPS.
-# Variáveis: no Portainer vão na aba do stack; no CLI vêm do .env (interpolação).
-# Por padrão o Caddy fica DESLIGADO (você já tem reverse proxy): a API é exposta em
-# 127.0.0.1:3000 pro seu proxy. Sem proxy? defina COMPOSE_PROFILES=edge + API_DOMAIN.
+# Motor de Afiliados — Docker SWARM (deploy via Portainer swarm stack).
+# Imagem pré-buildada no ghcr.io (Swarm não faz build). Variáveis vão na aba do
+# stack no Portainer. O schema do banco é aplicado pelo app no boot (migrate).
+# Traefik roteia API_DOMAIN -> api:3000 via deploy.labels.
+version: "3.8"
 
 services:
   postgres:
     image: postgres:16-alpine
-    restart: unless-stopped
     environment:
       POSTGRES_USER: motor
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: motor
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U motor"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    networks: [internal]
+    deploy:
+      restart_policy: { condition: any }
+      placement:
+        constraints: [node.role == manager] # fixa o banco num nó (dado estável)
 
   redis:
     image: redis:7-alpine
-    restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redisdata:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    networks: [internal]
+    deploy:
+      restart_policy: { condition: any }
+      placement:
+        constraints: [node.role == manager]
 
-  # Evolution API NÃO está aqui: já roda na sua VPS. O app aponta para ela via
-  # EVOLUTION_API_URL (ex.: http://<host-da-evolution>:8080) no .env. Se você usa
-  # o transporte n8n (WA_TRANSPORT=n8n), o app fala com o n8n e o n8n com a Evolution.
-
-  # api e worker: construídos a partir do src/.
   api:
-    build: .
+    image: ghcr.io/recusadooo/motor-afiliados:latest
     command: ["node", "dist/api.js"]
-    restart: unless-stopped
-    # Variáveis: no Portainer, defina na aba "Environment variables" do stack.
-    # No CLI, elas vêm do .env (interpolação). Evolution e OpenAI são configuradas
-    # depois pela aba Config do painel — não precisam aqui.
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://motor:${POSTGRES_PASSWORD}@postgres:5432/motor
@@ -51,28 +40,23 @@ services:
       SHOPEE_APP_ID: ${SHOPEE_APP_ID}
       SHOPEE_APP_SECRET: ${SHOPEE_APP_SECRET}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
-    # Também publica no localhost (útil pra testar: curl 127.0.0.1:3000/health).
-    ports:
-      - "127.0.0.1:3000:3000"
-    # --- Traefik (roteia cupom.trakads.cloud -> esta API) ---
-    # Preencha no Portainer: API_DOMAIN, TRAEFIK_ENTRYPOINT, TRAEFIK_CERTRESOLVER,
-    # TRAEFIK_NETWORK (copie entrypoint/certresolver dos seus serviços que já usam Traefik).
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=${TRAEFIK_NETWORK:-motor-afiliados_default}"
-      - "traefik.http.routers.motor.rule=Host(`${API_DOMAIN}`)"
-      - "traefik.http.routers.motor.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
-      - "traefik.http.routers.motor.tls=true"
-      - "traefik.http.routers.motor.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
-      - "traefik.http.services.motor.loadbalancer.server.port=3000"
-    depends_on:
-      postgres: { condition: service_healthy }
-      redis: { condition: service_healthy }
+    networks: [internal, TrakAdsNet]
+    deploy:
+      restart_policy: { condition: any }
+      labels:
+        - "traefik.enable=true"
+        # v3 Swarm usa traefik.swarm.network (docker.network foi deprecado em 3.2.2).
+        # Se seu Traefik for < 3.2.2, troque por traefik.docker.network.
+        - "traefik.swarm.network=TrakAdsNet"
+        - "traefik.http.routers.motor.rule=Host(`${API_DOMAIN}`)"
+        - "traefik.http.routers.motor.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+        - "traefik.http.routers.motor.tls=true"
+        - "traefik.http.routers.motor.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencryptresolver}"
+        - "traefik.http.services.motor.loadbalancer.server.port=3000"
 
   worker:
-    build: .
+    image: ghcr.io/recusadooo/motor-afiliados:latest
     command: ["node", "dist/worker.js"]
-    restart: unless-stopped
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://motor:${POSTGRES_PASSWORD}@postgres:5432/motor
@@ -80,31 +64,16 @@ services:
       SHOPEE_APP_ID: ${SHOPEE_APP_ID}
       SHOPEE_APP_SECRET: ${SHOPEE_APP_SECRET}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
-    depends_on:
-      postgres: { condition: service_healthy }
-      redis: { condition: service_healthy }
+    networks: [internal]
+    deploy:
+      restart_policy: { condition: any }
 
-  # Caddy é OPCIONAL: só use se NÃO tiver reverse proxy na VPS. Como você já tem
-  # (Evolution/n8n), deixe DESLIGADO — seu proxy aponta pra 127.0.0.1:3000.
-  # Para ligar (VPS sem proxy): defina a env COMPOSE_PROFILES=edge.
-  caddy:
-    image: caddy:2-alpine
-    profiles: ["edge"]
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      API_DOMAIN: ${API_DOMAIN}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddydata:/data
-      - caddyconfig:/config
-    depends_on:
-      - api
+networks:
+  internal:
+    driver: overlay
+  TrakAdsNet:
+    external: true
 
 volumes:
   pgdata:
   redisdata:
-  caddydata:
-  caddyconfig:

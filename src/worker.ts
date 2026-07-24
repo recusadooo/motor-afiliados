@@ -6,6 +6,7 @@ import { startProcessWorker } from './queue/processWorker';
 import { startDripWorker, ensureDripJobs } from './queue/scheduler';
 import { getCaptureQueue, QUEUE_CAPTURE } from './queue/queues';
 import { runCapture } from './capture/shopeeFeed';
+import { migrate } from './migrate';
 
 /**
  * Processo de background: consome filas (process, drip), roda a captura por cron
@@ -14,6 +15,9 @@ import { runCapture } from './capture/shopeeFeed';
 async function main(): Promise<void> {
   const cfg = loadConfig();
   log.info('worker iniciando', { env: cfg.NODE_ENV });
+
+  // Aplica o schema (espera o Postgres). Idempotente.
+  await migrate();
 
   startProcessWorker();
   startDripWorker();

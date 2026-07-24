@@ -1,0 +1,51 @@
+name: Build e publicar imagem (ghcr.io)
+
+# A cada push na main, builda a imagem e publica no GitHub Container Registry.
+# O Swarm/Portainer puxa essa imagem (não faz build no servidor).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login no ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/recusadooo/motor-afiliados:latest
+            ghcr.io/recusadooo/motor-afiliados:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Opcional: se você configurar um webhook de redeploy no Portainer,
+      # cadastre o secret PORTAINER_WEBHOOK que o deploy fica 100% automático.
+      - name: Redeploy no Portainer (opcional)
+        env:
+          HOOK: ${{ secrets.PORTAINER_WEBHOOK }}
+        run: |
+          if [ -n "$HOOK" ]; then
+            echo "acionando webhook do Portainer..."
+            curl -fsSL -X POST "$HOOK"
+          else
+            echo "sem PORTAINER_WEBHOOK — imagem publicada; redeploy manual no Portainer (Pull and redeploy)."
+          fi
