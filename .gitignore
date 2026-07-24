@@ -1,0 +1,14 @@
+# Segredos — nunca versionar
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+dist/
+*.log
+
+# Sessões / estado de runtime (WhatsApp, etc.)
+instances/
+sessions/
+*.session

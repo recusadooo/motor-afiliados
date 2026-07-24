@@ -1,0 +1,25 @@
+# ============================================================
+# USE ESTE OVERRIDE SE a VPS JÁ TEM um reverse proxy nas portas 80/443
+# (provável — Evolution + n8n normalmente rodam atrás de nginx/NPM/Traefik/Caddy).
+#
+# O que ele faz:
+#   1) NÃO sobe o Caddy do app (pra não brigar pela porta 80/443);
+#   2) Expõe a API em 127.0.0.1:3000, pro seu proxy existente encaminhar
+#      cupom.trakads.cloud -> 127.0.0.1:3000 (com suporte a WebSocket).
+#
+# Como usar: renomeie para  docker-compose.override.yml
+#   (o `docker compose` carrega esse arquivo automaticamente junto do principal).
+#
+# Se a VPS NÃO tiver proxy nas portas 80/443, IGNORE este arquivo e use só o
+# docker-compose.yml (o Caddy do app cuida do TLS sozinho).
+# ============================================================
+
+services:
+  # Desliga o Caddy do app (seu proxy externo cuida do TLS + roteamento).
+  caddy:
+    profiles: ["nao-usar"]
+
+  # Expõe a API só no localhost do VPS, pro proxy externo encaminhar.
+  api:
+    ports:
+      - "127.0.0.1:3000:3000"

@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>README (app) — MOTOR::AFILIADO</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--void:#0E1116;--panel:#161B22;--panel2:#1B222B;--line:#2A333F;--ink:#E9EFF5;--ink2:#AEBAC6;--ink3:#7C8896;--signal:#F5A524;--ok:#25D07B;--danger:#F0503A;--tg:#3B9EFF;--warn:#E3B341;}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--void);color:var(--ink);font-family:"IBM Plex Sans",system-ui,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.65}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+.topbar{position:sticky;top:0;z-index:20;background:rgba(11,14,18,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:13px 22px;display:flex;align-items:center;gap:12px}
+.topbar .led{width:9px;height:9px;border-radius:50%;background:var(--signal)}
+.topbar b{font-family:"IBM Plex Mono",monospace;font-size:13px;letter-spacing:.03em}
+.topbar .doc{color:var(--ink3);font-family:"IBM Plex Mono",monospace;font-size:12px}
+.topbar a{margin-left:auto;color:var(--signal);text-decoration:none;font-family:"IBM Plex Mono",monospace;font-size:12px}
+.wrap{max-width:900px;margin:0 auto;padding:34px 24px 80px}
+h1,h2,h3,h4{font-family:"Bricolage Grotesque","IBM Plex Sans",sans-serif;font-weight:800;line-height:1.15;letter-spacing:-.01em;margin:1.6em 0 .5em}
+h1{font-size:clamp(28px,4vw,42px);margin-top:.2em}
+h2{font-size:26px;border-bottom:1px solid var(--line);padding-bottom:8px}
+h3{font-size:20px;color:var(--signal)}
+h4{font-size:16px}
+p{margin:.7em 0}
+a{color:var(--signal)}
+code{font-family:"IBM Plex Mono",monospace;font-size:.88em;background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:var(--signal)}
+pre{background:#0B0E12;border:1px solid var(--line);border-radius:10px;padding:16px;overflow-x:auto}
+pre code{background:none;border:0;padding:0;color:var(--ink2);font-size:13px}
+blockquote{margin:1em 0;border-left:3px solid var(--signal);background:rgba(245,165,36,.05);padding:10px 16px;color:var(--ink2);border-radius:0 8px 8px 0}
+ul,ol{padding-left:24px}
+li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1em 0;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:9px 13px;text-align:left;font-size:14.5px;vertical-align:top}
+th{background:var(--panel2);font-family:"IBM Plex Mono",monospace;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3)}
+hr{border:0;border-top:1px solid var(--line);margin:2em 0}
+.toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 20px;margin:0 0 30px}
+.toc>ul{padding-left:18px}
+.toc a{text-decoration:none;color:var(--ink2)}
+.toc a:hover{color:var(--signal)}
+strong{color:var(--ink)}
+.doc-li{list-style:none;margin-left:-24px;padding-left:2px;display:flex;gap:10px;align-items:flex-start}
+.doc-li>input{margin-top:5px;flex:none;width:16px;height:16px;accent-color:var(--signal);cursor:pointer}
+.doc-li.done>span{opacity:.5;text-decoration:line-through}
+</style></head>
+<body>
+<div class="topbar"><span class="led"></span><b>MOTOR::AFILIADO</b><span class="doc">README (app)</span><a href="index.html">todos os docs ↗</a></div>
+<div class="wrap"><div class="toc"><span class="toctitle">Índice</span><ul>
+<li><a href="#motor-de-afiliados-app">Motor de Afiliados — app/</a><ul>
+<li><a href="#o-que-a-maquina-faz">O que a máquina faz</a></li>
+<li><a href="#decisoes-de-escopo-congeladas">Decisões de escopo (congeladas)</a></li>
+<li><a href="#arquitetura-resumo">Arquitetura (resumo)</a></li>
+<li><a href="#estrutura-de-pastas">Estrutura de pastas</a></li>
+<li><a href="#fluxo-dos-dados">Fluxo dos dados</a></li>
+<li><a href="#como-rodar">Como rodar</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<h1 id="motor-de-afiliados-app">Motor de Afiliados — <code>app/</code></h1>
+<p>Subpasta <strong>deployável e limpa</strong> do projeto. É <strong>só daqui</strong> que se faz deploy/upload. A raiz <code>D:\grupo-de-ofertas</code> (com <code>.env</code> e <code>credenciais.txt</code> reais) <strong>nunca</strong> sobe para lugar nenhum.</p>
+<blockquote>
+<p>Escopo congelado em 2026-07-23. Fonte: <code>../docs/PLANO.md</code>, <code>../docs/INVESTIGACAO-FRAUDE-WHATSAPP.md</code>, <code>../CLAUDE.md</code>.</p>
+</blockquote>
+<h2 id="o-que-a-maquina-faz">O que a máquina faz</h2>
+<p>Captura ofertas da Shopee → troca pelo link de afiliado do dono → reescreve a copy com IA → posta <strong>num grupo próprio de WhatsApp</strong> em gotejamento, respeitando cadência anti-ban. Uma fila visível permite rejeitar qualquer oferta antes do ar.</p>
+<h2 id="decisoes-de-escopo-congeladas">Decisões de escopo (congeladas)</h2>
+<table>
+<thead>
+<tr>
+<th>Tema</th>
+<th>Decisão</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Fonte de produção</strong></td>
+<td>Shopee Open API (<code>productOfferV2</code> / <code>shopeeOfferV2</code>) — <strong>testada e funcionando</strong>.</td>
+</tr>
+<tr>
+<td><strong>Saída</strong></td>
+<td><strong>1 grupo de WhatsApp próprio</strong> (opt-in), via Evolution API. Não é disparo individual.</td>
+</tr>
+<tr>
+<td><strong>Número de saída</strong></td>
+<td>Um número do dono, dedicado a isto (rotacionável depois).</td>
+</tr>
+<tr>
+<td><strong>Enriquecimento</strong></td>
+<td>Listener <strong>read-only</strong> de outros grupos de WhatsApp, em <strong>número separado</strong>, só para inteligência de mercado / entender como tratar os dados da API oficial. Não republica ao vivo.</td>
+</tr>
+<tr>
+<td><strong>IA de copy</strong></td>
+<td>GPT-5.4-mini (Structured Outputs strict + moderação). A IA nunca escreve números: usa placeholders e o app substitui pelos valores reais.</td>
+</tr>
+<tr>
+<td><strong>Cadência</strong></td>
+<td>Intervalo base <strong>20–30 min</strong> (aleatório) + <strong>jitter 3–5 min</strong> (aleatório, da carga da VPS) entre posts; pausa 00h–07h. <code>daily_cap</code> = <strong>250/dia</strong>.</td>
+</tr>
+<tr>
+<td><strong>Jitter</strong></td>
+<td>O tempo exato sai da <strong>oscilação de carga da VPS</strong> (entropia real, nunca mecânico). Nota: anti-ban vem da distribuição parecer humana; a fonte da aleatoriedade é indiferente à Meta.</td>
+</tr>
+<tr>
+<td><strong>Fura-fila</strong></td>
+<td>Oferta excepcional (desconto <strong>real</strong> validado alto <strong>ou</strong> economia absoluta grande) pula à frente, com gap mínimo para não virar rajada.</td>
+</tr>
+<tr>
+<td><strong>Aprovação</strong></td>
+<td>100% automático após os filtros, <strong>mas</strong> com fila visível e janela de rejeição manual por canal.</td>
+</tr>
+<tr>
+<td><strong>Facebook</strong></td>
+<td><strong>Fora do escopo.</strong></td>
+</tr>
+<tr>
+<td><strong>Telegram</strong></td>
+<td>Adiado (poster opcional numa fase futura).</td>
+</tr>
+<tr>
+<td><strong>Hospedagem</strong></td>
+<td>VPS próprio, Docker Compose. Dashboard (fase posterior) na Vercel.</td>
+</tr>
+<tr>
+<td><strong>Segredos</strong></td>
+<td>Vivem em <code>.env</code> <strong>no servidor</strong> (chmod 600), nunca no repo. <code>app/</code> sobe sem segredo.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="arquitetura-resumo">Arquitetura (resumo)</h2>
+<pre><code>Shopee Open API ─┐
+                 ├─► ingest ─► process (extrai/valida link, gera afiliado,
+WA listener ─────┘             dedup, filtros, desconto-real, copy IA)
+(número B, read-only)                     │
+                                          ▼
+                              fila (BullMQ/Redis) + scheduler
+                              cadência 15–30min + fura-fila
+                                          │
+                                          ▼
+                              poster ─► grupo WhatsApp (número A)
+                                          │
+                                          ▼
+                              send_logs (idempotência) + audit
+</code></pre>
+<p>Regra de ouro: <strong>quem captura nunca posta.</strong> O listener só grava e enfileira.</p>
+<h2 id="estrutura-de-pastas">Estrutura de pastas</h2>
+<pre><code>app/
+  README.md            ← este arquivo
+  PERGUNTAS.md         ← o que depende de você (segredos, número, keywords…)
+  .env.example         ← nomes das variáveis (sem valores)
+  Dockerfile           ← build multi-stage (TS -&gt; dist)
+  docker-compose.yml   ← postgres, redis, evolution, api, worker, caddy
+  Caddyfile            ← TLS automático; publica só a API
+  db/schema.sql        ← modelo de dados PostgreSQL
+  src/
+    config.ts          ← env validado (zod)
+    logger.ts db.ts redis.ts util.ts types.ts
+    resilience/        ← retry (backoff+jitter), circuit breaker
+    shopee/            ← client assinado (SHA256) + queries + generateShortLink
+    pipeline/          ← normalize, dedup, priceHistory, fakeDiscount, filters,
+                          affiliate, copy (IA c/ placeholders), process
+    ai/openai.ts       ← Structured Outputs + moderação (com fallback de modelo)
+    capture/shopeeFeed ← puxa ofertas -&gt; raw_captures -&gt; fila
+    queue/             ← queues, processWorker, scheduler (gotejamento + fura-fila)
+    whatsapp/          ← evolution (client), poster, listener (enriquecimento)
+    api.ts             ← REST + webhook + WS (entrypoint)
+    worker.ts          ← workers + cron de captura (entrypoint)
+    commands/          ← shopeeCheck (teste ao vivo), captureOnce
+</code></pre>
+<h2 id="fluxo-dos-dados">Fluxo dos dados</h2>
+<p><code>worker.ts</code> roda a <strong>captura</strong> por cron → grava <code>raw_captures</code> → enfileira <code>process</code>.
+O <strong>processWorker</strong> normaliza, registra preço, aplica filtros/desconto-real, gera o
+link de afiliado, escreve a copy (IA) e grava em <code>offers</code> (status <code>approved</code>).
+O <strong>scheduler</strong> (drip) puxa a próxima oferta elegível, faz o <em>claim</em> idempotente em
+<code>send_logs</code> e posta no grupo via Evolution, reagendando-se com intervalo aleatório.</p>
+<h2 id="como-rodar">Como rodar</h2>
+<p><strong>Local (dev):</strong></p>
+<pre><code class="language-bash">npm install
+npm run typecheck          # valida tudo
+npm run shopee:check       # testa a Shopee Open API ao vivo (read-only)
+npm run capture:once       # 1 ciclo de captura -&gt; banco (precisa Postgres+Redis)
+</code></pre>
+<p><strong>Produção (VPS, Docker):</strong>
+1. Copie <code>app/</code> para o servidor (só a subpasta — a raiz nunca sobe).
+2. <code>cp .env.example .env</code> e preencha (<code>POSTGRES_PASSWORD</code>, <code>API_DOMAIN</code>, <code>PUBLIC_APP_URL</code>, Shopee). <code>chmod 600 .env</code>. (Evolution e OpenAI podem ir na aba Config.)
+3. Aponte o DNS do seu subdomínio para o IP do VPS (ver <code>PERGUNTAS.md</code>).
+4. <code>docker compose up -d</code> (sobe postgres, redis, api, worker, caddy — a Evolution é externa, já na sua VPS).
+5. Abra o painel em <code>https://SEU-DOMINIO/</code> → aba <strong>Config</strong>: cole a URL + key da sua <strong>Evolution</strong> (e a chave da OpenAI).
+6. Aba <strong>Conexões</strong>: número novo → <strong>Criar + configurar</strong> (o app cria a instância na Evolution e já a configura pra grupos + webhook) → <strong>QR</strong> → <strong>Listar grupos</strong> → <strong>Registrar canal</strong>. Número que já existe → só registrar (nome da instância + id do grupo). Sem SQL manual.</p>
+<p>O <code>worker</code> recheca canais novos a cada minuto — assim que você registra um número, o gotejamento começa.</p>
+<blockquote>
+<p>Detalhes e escolhas em <code>PERGUNTAS.md</code>.</p>
+</blockquote></div>
+
+</body></html>

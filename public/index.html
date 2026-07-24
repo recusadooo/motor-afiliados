@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MOTOR::AFILIADO — Painel</title>
+<style>
+  :root{--void:#0E1116;--panel:#161B22;--panel2:#1B222B;--line:#2A333F;--ink:#E9EFF5;
+    --ink2:#AEBAC6;--ink3:#7C8896;--signal:#F5A524;--ok:#25D07B;--danger:#F0503A;--tg:#3B9EFF;--warn:#E3B341;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--void);color:var(--ink);font-family:"IBM Plex Sans",system-ui,Segoe UI,Roboto,sans-serif;font-size:15px}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+  header{position:sticky;top:0;background:rgba(11,14,18,.85);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);padding:14px 22px;display:flex;align-items:center;gap:14px;z-index:10}
+  header b{font-family:"IBM Plex Mono",monospace;letter-spacing:.03em}
+  .led{width:9px;height:9px;border-radius:50%;background:var(--signal)}
+  .wrap{max-width:1000px;margin:0 auto;padding:22px}
+  h2{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);font-family:"IBM Plex Mono",monospace;margin:24px 0 12px}
+  h3{font-size:16px;margin:18px 0 10px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px}
+  .stat .n{font-size:28px;font-weight:700;color:var(--signal);line-height:1}
+  .stat .l{font-size:12px;color:var(--ink3);margin-top:6px;font-family:"IBM Plex Mono",monospace}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+  .chip{font-family:"IBM Plex Mono",monospace;font-size:12px;padding:5px 10px;border-radius:7px;border:1px solid var(--line);display:flex;gap:7px;align-items:center}
+  .dot{width:8px;height:8px;border-radius:50%}
+  .tabs{display:flex;gap:8px;margin:20px 0 8px;flex-wrap:wrap}
+  .tab{font-family:"IBM Plex Mono",monospace;font-size:13px;padding:8px 16px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink2);cursor:pointer}
+  .tab.active{border-color:var(--signal);color:var(--ink);background:rgba(245,165,36,.08)}
+  .view{display:none}.view.active{display:block}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:14px}
+  .offer{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;gap:14px;margin-bottom:10px;align-items:flex-start}
+  .offer img{width:60px;height:60px;border-radius:8px;object-fit:cover;background:var(--panel2);flex:none}
+  .offer .title{font-weight:600;font-size:14.5px}
+  .offer .meta{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink3);margin-top:4px}
+  .offer .copy{font-size:13px;color:var(--ink2);margin-top:8px;white-space:pre-wrap;max-height:70px;overflow:hidden}
+  .badge{font-family:"IBM Plex Mono",monospace;font-size:10px;padding:2px 7px;border-radius:5px;background:rgba(245,165,36,.15);color:var(--signal);margin-left:6px}
+  label{display:block;font-size:12px;color:var(--ink3);margin:12px 0 5px;font-family:"IBM Plex Mono",monospace}
+  input,select{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--ink);font-family:inherit;font-size:14px;padding:9px 12px}
+  input:focus,select:focus{outline:none;border-color:var(--signal)}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1;min-width:140px}
+  .btn{font-family:"IBM Plex Mono",monospace;font-size:13px;border:0;border-radius:8px;padding:9px 14px;cursor:pointer;background:var(--signal);color:#1a1206;font-weight:600;margin-top:10px}
+  .btn.ghost{background:transparent;color:var(--ink2);border:1px solid var(--line)}
+  .btn.small{font-size:12px;padding:7px 11px;margin-top:0}
+  .btn.reject{background:var(--panel2);color:var(--ink2);border:1px solid var(--line)}
+  .btn.reject:hover{border-color:var(--danger);color:#ff8a76}
+  .empty{color:var(--ink3);font-family:"IBM Plex Mono",monospace;font-size:13px;padding:16px;text-align:center}
+  .qr{text-align:center;margin-top:14px}.qr img{width:230px;height:230px;background:#fff;border-radius:10px;padding:8px}
+  .note{font-size:12.5px;color:var(--ink3);margin-top:6px}
+  .ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--danger)}
+  a{color:var(--signal)}
+  .actions{display:flex;flex-direction:column;gap:6px;flex:none}
+  .grouplist{max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:6px;margin-top:8px}
+  .grp{display:flex;gap:9px;align-items:center;padding:7px 8px;border-radius:6px;font-size:14px;color:var(--ink);cursor:pointer}
+  .grp:hover{background:var(--panel2)}
+  .grp input{width:auto;accent-color:var(--signal)}
+</style>
+</head>
+<body>
+<header><span class="led"></span><b>MOTOR::AFILIADO</b>
+  <span class="mono" style="color:var(--ink3);font-size:12px">painel</span>
+  <button class="btn small ghost" style="margin-left:auto;margin-top:0" onclick="refreshAll()">↻ atualizar</button>
+</header>
+
+<div class="wrap">
+  <h2>// resumo</h2>
+  <div class="stats" id="stats"><div class="empty">carregando…</div></div>
+  <div class="chips" id="channels" style="margin-top:12px"></div>
+
+  <div class="tabs">
+    <button class="tab active" data-view="fila" onclick="setView(this)">Fila</button>
+    <button class="tab" data-view="conexoes" onclick="setView(this)">Conexões</button>
+    <button class="tab" data-view="config" onclick="setView(this)">Config</button>
+    <button class="tab" data-view="dlq" onclick="setView(this)">Falhas</button>
+  </div>
+
+  <!-- FILA -->
+  <div class="view active" id="view-fila">
+    <div class="tabs">
+      <button class="tab active" data-status="approved" onclick="setTab(this)">Aprovadas</button>
+      <button class="tab" data-status="pending" onclick="setTab(this)">Aguardando</button>
+      <button class="tab" data-status="sent" onclick="setTab(this)">Enviadas</button>
+      <button class="tab" data-status="rejected" onclick="setTab(this)">Rejeitadas</button>
+    </div>
+    <div id="offers"><div class="empty">carregando…</div></div>
+  </div>
+
+  <!-- CONEXÕES -->
+  <div class="view" id="view-conexoes">
+    <div class="card">
+      <h3>Conectar um número</h3>
+      <div class="note"><b>Número novo:</b> preencha o nome + função e faça 1→2→3. O passo 1 já cria a instância na Evolution E a configura (foco em grupos, rejeita chamadas, webhook). <b>Número que já existe na sua Evolution?</b> Pule 1–3 e vá direto ao <b>Registrar canal</b> (digite o nome exato da instância + cole o id do grupo).</div>
+      <div class="row">
+        <div><label>Nome do número / instância</label><input id="c-name" placeholder="ex.: Principal (novo) ou o nome exato de uma instância existente" /></div>
+        <div><label>Função</label><select id="c-role"><option value="poster">poster (posta no grupo)</option><option value="listener">listener (só escuta)</option></select></div>
+      </div>
+      <div class="row">
+        <button class="btn" onclick="createInstance()">1. Criar + configurar</button>
+        <button class="btn ghost" onclick="showQr()">2. Mostrar QR</button>
+        <button class="btn ghost" onclick="checkState()">3. Verificar conexão</button>
+      </div>
+      <div id="qr" class="qr"></div>
+      <div id="c-msg" class="note"></div>
+
+      <div id="poster-extra" style="display:none">
+        <h3 style="margin-top:18px">Em quais grupos esse número dispara?</h3>
+        <button class="btn ghost small" onclick="listGroups()">Listar grupos (via Evolution)</button>
+        <div id="c-groups" class="grouplist"><div class="note">clique em "Listar grupos" e marque quais grupos esse número vai disparar</div></div>
+        <label>ou adicione um grupo pelo id</label>
+        <input id="c-group-manual" placeholder="120363XXXXXXXXXX@g.us" />
+      </div>
+      <div id="listener-extra" style="display:none">
+        <div class="note" style="margin-top:12px">Depois de conectar, aponte o webhook do Evolution para este app:</div>
+        <button class="btn ghost small" onclick="setWebhook()">Configurar webhook do listener</button>
+      </div>
+
+      <button class="btn" onclick="registerChannel()" style="margin-top:14px">✔ Registrar canal</button>
+    </div>
+
+    <h2>// números cadastrados</h2>
+    <div id="channels-list"><div class="empty">—</div></div>
+  </div>
+
+  <!-- CONFIG -->
+  <div class="view" id="view-config">
+    <div class="card">
+      <h3>Evolution API (WhatsApp)</h3>
+      <div id="evo-status" class="note"></div>
+      <div class="note">Aponte o app para a sua Evolution (a que já roda na VPS). Depois use a aba <b>Conexões</b> para conectar o número por QR.</div>
+      <label>URL da Evolution</label>
+      <input id="evo-url" placeholder="http://host-da-evolution:8080" />
+      <label>API key (AUTHENTICATION_API_KEY)</label>
+      <input id="evo-key" type="password" placeholder="fica só no servidor; não é exibida de volta" />
+      <button class="btn" onclick="saveEvolution()">Salvar Evolution</button>
+    </div>
+
+    <div class="card">
+      <h3>Inteligência artificial (copy)</h3>
+      <div id="cfg-status" class="note"></div>
+      <label>Chave da OpenAI</label>
+      <input id="cfg-key" type="password" placeholder="sk-... (fica só no servidor; não é exibida de volta)" />
+      <label>Modelo (COPY_MODEL)</label>
+      <input id="cfg-model" placeholder="ex.: gpt-5.4-mini (com fallback automático)" />
+      <button class="btn" onclick="saveAi()">Salvar IA</button>
+      <div class="note">Se o modelo não existir, cai automaticamente para <span class="mono">gpt-4.1-mini</span> → <span class="mono">gpt-4o-mini</span>. Sem chave, a copy usa um fallback simples.</div>
+    </div>
+  </div>
+
+  <!-- DLQ -->
+  <div class="view" id="view-dlq">
+    <div id="dlq"><div class="empty">—</div></div>
+  </div>
+</div>
+
+<script>
+let currentStatus='approved', currentView='fila';
+const fmtBRL=v=>v==null?'':Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function api(p,o){const r=await fetch(p,o);let j={};try{j=await r.json()}catch(e){}if(!r.ok)throw new Error(j.error||('HTTP '+r.status));return j;}
+function msg(id,text,cls){document.getElementById(id).innerHTML='<span class="'+(cls||'')+'">'+esc(text)+'</span>';}
+
+function setView(btn){document.querySelectorAll('.tabs>.tab[data-view]').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');currentView=btn.dataset.view;
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+currentView).classList.add('active');
+  if(currentView==='conexoes')loadChannels();
+  if(currentView==='config')loadSettings();
+  if(currentView==='dlq')loadDlq();
+}
+function setTab(btn){document.querySelectorAll('#view-fila .tab[data-status]').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');currentStatus=btn.dataset.status;loadOffers();}
+
+async function loadStats(){
+  const s=await api('/api/stats');const o=s.offers||{};
+  const cells=[['aprovadas',o.approved||0],['aguardando',o.pending||0],['enviadas hoje',s.sentToday||0],['rejeitadas',o.rejected||0]];
+  document.getElementById('stats').innerHTML=cells.map(([l,n])=>`<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+  const col={active:'var(--ok)',warming:'var(--warn)',paused:'var(--ink3)',banned:'var(--danger)'};
+  document.getElementById('channels').innerHTML=(s.channels||[]).map(c=>
+    `<span class="chip"><span class="dot" style="background:${col[c.status]||'var(--ink3)'}"></span>${esc(c.display_name||c.instance_ref)} · ${c.status} · breaker:${c.breaker}</span>`).join('')||'<span class="empty">nenhum canal cadastrado — vá em Conexões</span>';
+}
+async function loadOffers(){
+  const rows=await api('/api/offers?status='+currentStatus);const el=document.getElementById('offers');
+  if(!rows.length){el.innerHTML='<div class="empty">nada aqui</div>';return;}
+  el.innerHTML=rows.map(r=>{
+    const pri=r.is_priority?'<span class="badge">FURA-FILA</span>':'';
+    const disc=r.discount_pct?`desc ${Math.round(r.discount_pct)}%`:'';
+    const comm=r.commission_rate?`comissão ${(Number(r.commission_rate)*100).toFixed(0)}%`:'';
+    const acts=[];
+    if(currentStatus==='pending')acts.push(`<button class="btn small" onclick="act('${r.id}','approve')">aprovar</button>`);
+    if(currentStatus==='approved'||currentStatus==='pending')acts.push(`<button class="btn small reject" onclick="act('${r.id}','reject')">rejeitar</button>`);
+    return `<div class="offer"><img src="${esc(r.image_url)}" onerror="this.style.visibility='hidden'"/>
+      <div style="flex:1;min-width:0"><div class="title">${esc(r.title)} ${pri}</div>
+      <div class="meta">${fmtBRL(r.price)} · ${disc} · ${comm}${r.reject_reason?' · '+esc(r.reject_reason):''}</div>
+      <div class="copy">${esc(r.rewritten_copy)}</div>
+      ${r.affiliate_url?`<div class="meta"><a href="${esc(r.affiliate_url)}" target="_blank">${esc(r.affiliate_url)}</a></div>`:''}</div>
+      <div class="actions">${acts.join('')}</div></div>`;
+  }).join('');
+}
+async function loadDlq(){
+  const rows=await api('/api/dlq');const el=document.getElementById('dlq');
+  el.innerHTML=rows.length?rows.map(r=>`<div class="offer"><div><div class="title mono" style="font-size:13px">${esc(r.orig_queue)} · canal ${r.channel_id||'-'}</div><div class="meta">${esc((r.error||'').slice(0,200))}</div></div></div>`).join(''):'<div class="empty">nenhuma falha pendente 🎉</div>';
+}
+async function act(id,what){await api(`/api/offers/${id}/${what}`,{method:'POST'});refreshAll();}
+
+/* ---- Conexões ---- */
+function cName(){return document.getElementById('c-name').value.trim();}
+function cRole(){return document.getElementById('c-role').value;}
+document.addEventListener('change',e=>{if(e.target.id==='c-role'){
+  document.getElementById('poster-extra').style.display=cRole()==='poster'?'block':'none';
+  document.getElementById('listener-extra').style.display=cRole()==='listener'?'block':'none';
+}});
+async function createInstance(){try{if(!cName())return msg('c-msg','informe um nome','err');
+  const r=await api('/api/instances',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:cName(),role:cRole()})});
+  const steps=Object.entries(r.steps||{}).map(([k,v])=>k+': '+v).join(' · ');
+  msg('c-msg','✔ provisionado — '+steps+'. Agora clique em Mostrar QR.','ok');}catch(e){msg('c-msg',e.message,'err');}}
+async function showQr(){try{const r=await api('/api/instances/'+encodeURIComponent(cName())+'/qr');
+  const src=r.base64?(r.base64.startsWith('data:')?r.base64:'data:image/png;base64,'+r.base64):'';
+  document.getElementById('qr').innerHTML=src?`<img src="${src}"/>`:'';
+  msg('c-msg',(r.pairingCode?'código: '+r.pairingCode+' — ':'')+'escaneie o QR no WhatsApp do número.','warn');
+}catch(e){msg('c-msg',e.message,'err');}}
+async function checkState(){try{const r=await api('/api/instances/'+encodeURIComponent(cName())+'/state');
+  const ok=r.state==='open';msg('c-msg','estado: '+r.state+(ok?' ✔ conectado':' (open = conectado)'),ok?'ok':'warn');
+  if(ok)document.getElementById('qr').innerHTML='';}catch(e){msg('c-msg',e.message,'err');}}
+async function listGroups(){try{const g=await api('/api/instances/'+encodeURIComponent(cName())+'/groups');
+  document.getElementById('c-groups').innerHTML=g.length?g.map(x=>`<label class="grp"><input type="checkbox" value="${esc(x.id)}" data-subject="${esc(x.subject||x.id)}"> ${esc(x.subject||x.id)}</label>`).join(''):'<div class="note">nenhum grupo encontrado</div>';
+  msg('c-msg',g.length+' grupos — marque em quais esse número vai disparar','ok');}catch(e){msg('c-msg',e.message,'err');}}
+async function setWebhook(){try{const r=await api('/api/instances/'+encodeURIComponent(cName())+'/webhook',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  msg('c-msg','webhook configurado: '+r.url,'ok');}catch(e){msg('c-msg',e.message,'err');}}
+async function registerChannel(){try{
+  if(cRole()==='listener'){
+    await api('/api/channels',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:'listener',instance_ref:cName(),display_name:cName()})});
+    msg('c-msg','listener "'+cName()+'" registrado ✔','ok');loadChannels();refreshAll();return;
+  }
+  const checked=[...document.querySelectorAll('#c-groups input:checked')].map(i=>({id:i.value,subject:i.getAttribute('data-subject')}));
+  const manual=document.getElementById('c-group-manual').value.trim();
+  if(manual)checked.push({id:manual,subject:manual});
+  if(!checked.length)return msg('c-msg','marque ao menos um grupo (ou cole um id)','err');
+  const r=await api('/api/channels/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({instance_ref:cName(),groups:checked})});
+  msg('c-msg','✔ '+r.created+' grupo(s) registrados para "'+cName()+'"','ok');
+  document.getElementById('c-group-manual').value='';loadChannels();refreshAll();
+}catch(e){msg('c-msg',e.message,'err');}}
+async function loadChannels(){const rows=await api('/api/channels');const el=document.getElementById('channels-list');
+  el.innerHTML=rows.length?rows.map(c=>{
+    const paused=c.status!=='active';
+    const st=paused?' <span class="badge" style="background:rgba(240,80,58,.15);color:#ff8a76">'+esc(c.status)+'</span>':'';
+    const toggle=c.role==='poster'?(paused?`<button class="btn small approve" onclick="chanAction('${c.id}','active')">ativar</button>`:`<button class="btn small reject" onclick="chanAction('${c.id}','paused')">pausar</button>`):'';
+    return `<div class="offer"><div style="flex:1;min-width:0"><div class="title">${esc(c.display_name||c.instance_ref)} <span class="badge">${c.role}</span>${st}</div>
+      <div class="meta">nº ${esc(c.instance_ref)} · ${c.target_ref?esc(c.target_ref):'—'} · ${c.sent_today||0}/${c.daily_cap}/dia</div></div>
+      <div class="actions">${toggle}<button class="btn small reject" onclick="chanRemove('${c.id}')">remover</button></div></div>`;
+  }).join(''):'<div class="empty">nenhum número/grupo cadastrado ainda</div>';}
+async function chanAction(id,status){await api('/api/channels/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});loadChannels();refreshAll();}
+async function chanRemove(id){if(!confirm('Parar de disparar neste grupo e remover?'))return;await api('/api/channels/'+id,{method:'DELETE'});loadChannels();refreshAll();}
+
+/* ---- Config ---- */
+async function loadSettings(){const s=await api('/api/settings');
+  document.getElementById('cfg-status').innerHTML=(s.openai_api_key_set?'<span class="ok">✔ chave OpenAI definida</span>':'<span class="warn">sem chave (fallback)</span>')+' · modelo: <span class="mono">'+esc(s.copy_model)+'</span>';
+  document.getElementById('cfg-model').value=s.copy_model||'';
+  document.getElementById('evo-status').innerHTML=(s.evolution_api_key_set&&s.evolution_api_url?'<span class="ok">✔ Evolution configurada</span>':'<span class="warn">Evolution não configurada</span>');
+  document.getElementById('evo-url').value=s.evolution_api_url||'';}
+async function putSettings(body){await api('/api/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});}
+async function saveAi(){try{const body={};const k=document.getElementById('cfg-key').value.trim();if(k)body.openai_api_key=k;const m=document.getElementById('cfg-model').value.trim();if(m)body.copy_model=m;await putSettings(body);document.getElementById('cfg-key').value='';loadSettings();}catch(e){alert('erro: '+e.message);}}
+async function saveEvolution(){try{const body={evolution_api_url:document.getElementById('evo-url').value.trim()};const k=document.getElementById('evo-key').value.trim();if(k)body.evolution_api_key=k;await putSettings(body);document.getElementById('evo-key').value='';loadSettings();}catch(e){alert('erro: '+e.message);}}
+
+function refreshAll(){loadStats();loadOffers();if(currentView==='dlq')loadDlq();if(currentView==='conexoes')loadChannels();}
+refreshAll();setInterval(loadStats,15000);
+</script>
+</body>
+</html>

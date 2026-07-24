@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perguntas / To-do — MOTOR::AFILIADO</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--void:#0E1116;--panel:#161B22;--panel2:#1B222B;--line:#2A333F;--ink:#E9EFF5;--ink2:#AEBAC6;--ink3:#7C8896;--signal:#F5A524;--ok:#25D07B;--danger:#F0503A;--tg:#3B9EFF;--warn:#E3B341;}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--void);color:var(--ink);font-family:"IBM Plex Sans",system-ui,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.65}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+.topbar{position:sticky;top:0;z-index:20;background:rgba(11,14,18,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:13px 22px;display:flex;align-items:center;gap:12px}
+.topbar .led{width:9px;height:9px;border-radius:50%;background:var(--signal)}
+.topbar b{font-family:"IBM Plex Mono",monospace;font-size:13px;letter-spacing:.03em}
+.topbar .doc{color:var(--ink3);font-family:"IBM Plex Mono",monospace;font-size:12px}
+.topbar a{margin-left:auto;color:var(--signal);text-decoration:none;font-family:"IBM Plex Mono",monospace;font-size:12px}
+.wrap{max-width:900px;margin:0 auto;padding:34px 24px 80px}
+h1,h2,h3,h4{font-family:"Bricolage Grotesque","IBM Plex Sans",sans-serif;font-weight:800;line-height:1.15;letter-spacing:-.01em;margin:1.6em 0 .5em}
+h1{font-size:clamp(28px,4vw,42px);margin-top:.2em}
+h2{font-size:26px;border-bottom:1px solid var(--line);padding-bottom:8px}
+h3{font-size:20px;color:var(--signal)}
+h4{font-size:16px}
+p{margin:.7em 0}
+a{color:var(--signal)}
+code{font-family:"IBM Plex Mono",monospace;font-size:.88em;background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:var(--signal)}
+pre{background:#0B0E12;border:1px solid var(--line);border-radius:10px;padding:16px;overflow-x:auto}
+pre code{background:none;border:0;padding:0;color:var(--ink2);font-size:13px}
+blockquote{margin:1em 0;border-left:3px solid var(--signal);background:rgba(245,165,36,.05);padding:10px 16px;color:var(--ink2);border-radius:0 8px 8px 0}
+ul,ol{padding-left:24px}
+li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1em 0;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:9px 13px;text-align:left;font-size:14.5px;vertical-align:top}
+th{background:var(--panel2);font-family:"IBM Plex Mono",monospace;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3)}
+hr{border:0;border-top:1px solid var(--line);margin:2em 0}
+.toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 20px;margin:0 0 30px}
+.toc>ul{padding-left:18px}
+.toc a{text-decoration:none;color:var(--ink2)}
+.toc a:hover{color:var(--signal)}
+strong{color:var(--ink)}
+.doc-li{list-style:none;margin-left:-24px;padding-left:2px;display:flex;gap:10px;align-items:flex-start}
+.doc-li>input{margin-top:5px;flex:none;width:16px;height:16px;accent-color:var(--signal);cursor:pointer}
+.doc-li.done>span{opacity:.5;text-decoration:line-through}
+</style></head>
+<body>
+<div class="topbar"><span class="led"></span><b>MOTOR::AFILIADO</b><span class="doc">Perguntas / To-do</span><a href="index.html">todos os docs ↗</a></div>
+<div class="wrap"><div class="toc"><span class="toctitle">Índice</span><ul>
+<li><a href="#perguntas-setup-o-que-falta-atualizado-com-suas-respostas">PERGUNTAS / SETUP — o que falta (atualizado com suas respostas)</a><ul>
+<li><a href="#ja-resolvido-nao-precisa-fazer-nada">✅ Já resolvido (não precisa fazer nada)</a></li>
+<li><a href="#1-env-do-servidor-o-minimo-voce-preenche-eu-nunca-vejo">🔴 1. .env do servidor — o mínimo (você preenche; eu NUNCA vejo)</a></li>
+<li><a href="#2-dns-para-onde-apontar-instrucoes">🟠 2. DNS — para onde apontar (instruções)</a></li>
+<li><a href="#3-conectarcadastrar-o-numero-aba-conexoes">🟡 3. Conectar/cadastrar o número (aba Conexões)</a><ul>
+<li><a href="#sobre-o-proxy-sua-pergunta-como-vou-gerar-isso">⚠️ Sobre o proxy (sua pergunta: "como vou gerar isso")</a></li>
+</ul>
+</li>
+<li><a href="#4-tudo-pela-interface-aba-config">🟢 4. Tudo pela interface (aba Config)</a></li>
+<li><a href="#5-seu-nicho-palavras-chave-aplicado">✅ 5. Seu nicho — palavras-chave (APLICADO)</a></li>
+<li><a href="#fase-posterior-quando-quiser">🔵 Fase posterior (quando quiser)</a></li>
+<li><a href="#itens-do-codigo-a-validar-ao-vivo-baixo-risco">Itens do código a validar ao vivo (baixo risco)</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<h1 id="perguntas-setup-o-que-falta-atualizado-com-suas-respostas">PERGUNTAS / SETUP — o que falta (atualizado com suas respostas)</h1>
+<blockquote>
+<p>A maioria das decisões foi resolvida. O que sobra é <strong>setup operacional</strong>, e agora
+quase tudo é feito <strong>pela interface</strong> (aba Conexões e Config), sem mexer em SQL/código.</p>
+</blockquote>
+<h2 id="ja-resolvido-nao-precisa-fazer-nada">✅ Já resolvido (não precisa fazer nada)</h2>
+<ul>
+<li><strong>Cadência</strong>: 20–30 min + jitter 3–5 min, pausa 00–07h, teto 250/dia. Confirmado.</li>
+<li><strong>Aprovação</strong>: 100% automática após os filtros (com fila visível para rejeitar).</li>
+<li><strong>Bloqueios</strong>: lista atual está boa; ajustamos por observação depois.</li>
+<li><strong>Modelo de IA</strong>: <code>gpt-5.4-mini</code> com fallback automático — e você configura pela interface.</li>
+<li><strong>Evolution</strong>: já roda na sua VPS; o app aponta para ela (não subo outra).</li>
+</ul>
+<h2 id="1-env-do-servidor-o-minimo-voce-preenche-eu-nunca-vejo">🔴 1. <code>.env</code> do servidor — o mínimo (você preenche; eu NUNCA vejo)</h2>
+<p>Importante: você <strong>não me dá</strong> esses valores. Eles ficam no <code>.env</code> no seu servidor e o
+app lê em runtime. O mínimo é:</p>
+<pre><code>POSTGRES_PASSWORD=...            # VOCÊ INVENTA — senha do banco NOVO que este app cria (não é um segredo que você já tem)
+API_DOMAIN=api.suamarca.com.br   # seu subdomínio (ver DNS)
+PUBLIC_APP_URL=https://api.suamarca.com.br   # p/ o app configurar o webhook do listener
+# SHOPEE_APP_ID / SHOPEE_APP_SECRET — já funcionam
+</code></pre>
+<p>A <strong>Evolution</strong> (URL + key global) e a <strong>OpenAI</strong> (chave + modelo) você configura pela
+aba <strong>Config</strong> do painel — não precisa no <code>.env</code>. (Se preferir, <code>EVOLUTION_API_URL/KEY</code> e
+<code>OPENAI_API_KEY</code> no <code>.env</code> também funcionam.)</p>
+<h2 id="2-dns-para-onde-apontar-instrucoes">🟠 2. DNS — para onde apontar (instruções)</h2>
+<p>No painel do seu provedor de domínio, crie <strong>um registro do tipo A</strong>:
+- <strong>Tipo:</strong> A (Address)
+- <strong>Nome/Host:</strong> <code>api</code> (para ficar <code>api.suamarca.com.br</code>) — ou <code>@</code> se for o domínio raiz
+- <strong>Valor/Aponta para:</strong> <strong>o IP público do seu VPS</strong> (o mesmo que você usa pra SSH — está no seu <code>.env</code>)
+- <strong>TTL:</strong> padrão (auto)</p>
+<p>Depois coloque esse domínio em <code>API_DOMAIN</code> no <code>.env</code>. O <strong>Caddy emite o HTTPS sozinho</strong> (Let's Encrypt) quando o app subir. Propagação do DNS pode levar de minutos a algumas horas. Teste com <code>https://api.suamarca.com.br/health</code> (deve responder <code>{"ok":true}</code>).</p>
+<h2 id="3-conectarcadastrar-o-numero-aba-conexoes">🟡 3. Conectar/cadastrar o número (aba <strong>Conexões</strong>)</h2>
+<p>Depois de configurar a Evolution na aba Config, é tudo pelo painel:</p>
+<p><strong>Número NOVO (o app provisiona tudo na Evolution):</strong>
+1. Digite um nome + função (poster). Clique <strong>1. Criar + configurar</strong> — o app cria a instância na Evolution <strong>e já a configura pra grupos</strong> (recebe grupos, rejeita chamadas, sem sync de histórico) e aponta o webhook pro app.
+2. <strong>2. Mostrar QR</strong> → escaneia no celular → <strong>3. Verificar conexão</strong> (tem que dar <code>open</code>).
+3. <strong>Listar grupos</strong> → <strong>marque TODOS os grupos</strong> em que esse número vai disparar → <strong>Registrar canal</strong>. (Pode marcar quantos quiser; cada grupo vira um destino.) Gotejamento começa em ~1 min.</p>
+<p><strong>Número que JÁ existe na sua Evolution:</strong> pule 1–3, clique <strong>Listar grupos</strong>, marque os grupos e <strong>Registrar canal</strong>. (Ou cole o id de um grupo no campo manual.)</p>
+<p><strong>Gerenciar depois:</strong> a lista "números cadastrados" mostra cada grupo com botões <strong>pausar/ativar</strong> e <strong>remover</strong> — é aí que você liga/desliga o disparo por grupo.</p>
+<blockquote>
+<p>⚠️ A cadência (20–30 min) é <strong>por grupo</strong>. Um número em muitos grupos dispara mais no total — pra grupo de opt-in de baixo volume, tranquilo; se botar muitos grupos num número só, fique de olho no volume total dele.</p>
+</blockquote>
+<h3 id="sobre-o-proxy-sua-pergunta-como-vou-gerar-isso">⚠️ Sobre o proxy (sua pergunta: "como vou gerar isso")</h3>
+<p>Você <strong>não gera</strong> — você <strong>assina</strong> um serviço de proxy residencial/móvel BR e recebe
+<code>host:porta:usuário:senha</code>. Passo a passo:
+1. Contrate um provedor de <strong>proxy residencial ou móvel do Brasil</strong> (ex.: IPRoyal, Proxy-Cheap, Soax, Decodo/Smartproxy). Escolha IP do Brasil, de preferência <strong>móvel (4G)</strong> para número que posta.
+2. O provedor te dá host, porta, usuário e senha.
+3. Configure esse proxy <strong>na instância da Evolution do número</strong> (a Evolution v2 tem campos de proxy na criação da instância) <strong>antes</strong> de ler o QR — assim o WhatsApp desse número sai pelo IP residencial, não pelo IP do VPS (datacenter).</p>
+<p><strong>Right-size honesto:</strong> seu modelo é grupo próprio de opt-in, volume baixo (250/dia) e um número que você já usa. Nesse cenário o risco é MUITO menor que disparo frio em massa. Dá para <strong>começar sem proxy</strong> e adicionar só se vir sinais de bloqueio — mas, se esse número é importante pra você, um proxy móvel BR desde o início é o mais seguro. Sua escolha.</p>
+<h2 id="4-tudo-pela-interface-aba-config">🟢 4. Tudo pela interface (aba <strong>Config</strong>)</h2>
+<p>Você não precisa editar <code>.env</code> pra isso — dá pra fazer no painel:
+- <strong>Evolution API</strong>: cole a URL da sua Evolution (a da VPS) + a API key global → <strong>Salvar Evolution</strong>. Isso habilita a aba <strong>Conexões</strong>.
+- <strong>IA</strong>: cole a chave da OpenAI + modelo.</p>
+<p>No <code>.env</code> fica só o essencial de infra: <code>POSTGRES_PASSWORD</code> (você inventa), <code>API_DOMAIN</code>, <code>PUBLIC_APP_URL</code> e a Shopee.</p>
+<h2 id="5-seu-nicho-palavras-chave-aplicado">✅ 5. Seu nicho — palavras-chave (APLICADO)</h2>
+<p>Configurei <code>CAPTURE_KEYWORDS</code> com o seu nicho: <strong>tecnologia/PC</strong> (notebook, monitor,
+memória RAM, placa de vídeo, celular, SSD, headset…), <strong>casa/eletrodomésticos</strong>
+(geladeira, fogão, air fryer, liquidificador, aspirador…) e <strong>comida/condimentos</strong>
+(maionese, ketchup, mostarda, azeite, café, chocolate…). ~48 palavras. Edite no <code>.env</code>
+quando quiser afinar (mais palavras = mais ofertas e mais chamadas à API).</p>
+<h2 id="fase-posterior-quando-quiser">🔵 Fase posterior (quando quiser)</h2>
+<ul>
+<li>Dashboard Next.js na Vercel (o painel atual já funciona servido pela API).</li>
+<li>Poster de Telegram (arquitetura já é canal-agnóstica).</li>
+</ul>
+<h2 id="itens-do-codigo-a-validar-ao-vivo-baixo-risco">Itens do código a validar ao vivo (baixo risco)</h2>
+<ul>
+<li><code>generateShortLink</code>: tipo exato do input GraphQL — o código tenta tipado e cai para inline.</li>
+<li>Evolution v2.1.1: shapes de resposta (id da mensagem, QR) inferidos do código-fonte oficial — confirmar no primeiro uso real.</li>
+<li>Evolution v2.1.1: os settings da instância (<code>/settings/set</code>, foco em grupos) e os shapes de resposta foram confirmados no código-fonte oficial (branch main) — validar no primeiro provisionamento real, pois campos podem variar por versão (ex.: <code>wavoipToken</code> só em 2.2+).</li>
+</ul></div>
+<script>
+(function(){
+  // torna itens de lista "marcáveis" e persiste no navegador
+  var key='motor_todo_'+location.pathname.split('/').pop();
+  var state=JSON.parse(localStorage.getItem(key)||'{}');
+  document.querySelectorAll('.wrap li').forEach(function(li,i){
+    if(li.querySelector('ul,ol')) return; // pula itens que só agrupam
+    var id='i'+i;
+    li.classList.add('doc-li');
+    var cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!!state[id];
+    if(cb.checked) li.classList.add('done');
+    var span=document.createElement('span'); while(li.firstChild) span.appendChild(li.firstChild);
+    li.appendChild(cb); li.appendChild(span);
+    cb.addEventListener('change',function(){ li.classList.toggle('done',cb.checked); state[id]=cb.checked; localStorage.setItem(key,JSON.stringify(state)); });
+  });
+})();
+</script>
+</body></html>

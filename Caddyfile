@@ -1,0 +1,9 @@
+# Publica SÓ a API, com HTTPS/TLS automático (Let's Encrypt).
+# Defina API_DOMAIN no .env (ex.: api.suamarca.com.br) e aponte o DNS pro VPS.
+
+{$API_DOMAIN} {
+	encode gzip zstd
+
+	# WebSocket + REST vão para o serviço `api` na rede interna do Compose.
+	reverse_proxy api:3000
+}
