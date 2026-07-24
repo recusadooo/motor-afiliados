@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deploy no Portainer — MOTOR::AFILIADO</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--void:#0E1116;--panel:#161B22;--panel2:#1B222B;--line:#2A333F;--ink:#E9EFF5;--ink2:#AEBAC6;--ink3:#7C8896;--signal:#F5A524;--ok:#25D07B;--danger:#F0503A;--tg:#3B9EFF;--warn:#E3B341;}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--void);color:var(--ink);font-family:"IBM Plex Sans",system-ui,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.65}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+.topbar{position:sticky;top:0;z-index:20;background:rgba(11,14,18,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:13px 22px;display:flex;align-items:center;gap:12px}
+.topbar .led{width:9px;height:9px;border-radius:50%;background:var(--signal)}
+.topbar b{font-family:"IBM Plex Mono",monospace;font-size:13px;letter-spacing:.03em}
+.topbar .doc{color:var(--ink3);font-family:"IBM Plex Mono",monospace;font-size:12px}
+.topbar a{margin-left:auto;color:var(--signal);text-decoration:none;font-family:"IBM Plex Mono",monospace;font-size:12px}
+.wrap{max-width:900px;margin:0 auto;padding:34px 24px 80px}
+h1,h2,h3,h4{font-family:"Bricolage Grotesque","IBM Plex Sans",sans-serif;font-weight:800;line-height:1.15;letter-spacing:-.01em;margin:1.6em 0 .5em}
+h1{font-size:clamp(28px,4vw,42px);margin-top:.2em}
+h2{font-size:26px;border-bottom:1px solid var(--line);padding-bottom:8px}
+h3{font-size:20px;color:var(--signal)}
+h4{font-size:16px}
+p{margin:.7em 0}
+a{color:var(--signal)}
+code{font-family:"IBM Plex Mono",monospace;font-size:.88em;background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:var(--signal)}
+pre{background:#0B0E12;border:1px solid var(--line);border-radius:10px;padding:16px;overflow-x:auto}
+pre code{background:none;border:0;padding:0;color:var(--ink2);font-size:13px}
+blockquote{margin:1em 0;border-left:3px solid var(--signal);background:rgba(245,165,36,.05);padding:10px 16px;color:var(--ink2);border-radius:0 8px 8px 0}
+ul,ol{padding-left:24px}
+li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1em 0;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:9px 13px;text-align:left;font-size:14.5px;vertical-align:top}
+th{background:var(--panel2);font-family:"IBM Plex Mono",monospace;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3)}
+hr{border:0;border-top:1px solid var(--line);margin:2em 0}
+.toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 20px;margin:0 0 30px}
+.toc>ul{padding-left:18px}
+.toc a{text-decoration:none;color:var(--ink2)}
+.toc a:hover{color:var(--signal)}
+strong{color:var(--ink)}
+.doc-li{list-style:none;margin-left:-24px;padding-left:2px;display:flex;gap:10px;align-items:flex-start}
+.doc-li>input{margin-top:5px;flex:none;width:16px;height:16px;accent-color:var(--signal);cursor:pointer}
+.doc-li.done>span{opacity:.5;text-decoration:line-through}
+</style></head>
+<body>
+<div class="topbar"><span class="led"></span><b>MOTOR::AFILIADO</b><span class="doc">Deploy no Portainer</span><a href="index.html">todos os docs ↗</a></div>
+<div class="wrap"><div class="toc"><span class="toctitle">Índice</span><ul>
+<li><a href="#subir-no-portainer-passo-a-passo-completo">Subir no Portainer (passo a passo completo)</a><ul>
+<li><a href="#passo-0-dns-faz-primeiro-demora-pra-propagar">Passo 0 — DNS (faz primeiro, demora pra propagar)</a></li>
+<li><a href="#passo-1-criar-o-stack">Passo 1 — Criar o Stack</a></li>
+<li><a href="#passo-2-variaveis-de-ambiente-na-aba-do-stack">Passo 2 — Variáveis de ambiente (na aba do stack)</a></li>
+<li><a href="#passo-3-conferir-que-subiu">Passo 3 — Conferir que subiu</a></li>
+<li><a href="#passo-4-ligar-seu-reverse-proxy-no-app">Passo 4 — Ligar seu reverse proxy no app</a></li>
+<li><a href="#passo-5-testar-e-configurar">Passo 5 — Testar e configurar</a></li>
+<li><a href="#atualizar-depois">Atualizar depois</a></li>
+<li><a href="#sem-reverse-proxy-caso-raro">Sem reverse proxy? (caso raro)</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<h1 id="subir-no-portainer-passo-a-passo-completo">Subir no Portainer (passo a passo completo)</h1>
+<p>Você já tem Portainer + Docker + um reverse proxy na VPS (Evolution/n8n). O jeito
+certo é subir o app como <strong>Stack</strong> apontando pro repositório do GitHub, e ligar o seu
+proxy existente no app. Sem <code>docker compose</code> na mão.</p>
+<p>O compose já vem preparado: <strong>não sobe o Caddy</strong> (seu proxy cuida do HTTPS) e expõe a
+API na porta interna <code>3000</code>. As variáveis você põe na <strong>interface do Portainer</strong>.</p>
+<hr />
+<h2 id="passo-0-dns-faz-primeiro-demora-pra-propagar">Passo 0 — DNS (faz primeiro, demora pra propagar)</h2>
+<p>No painel de <code>trakads.cloud</code>: registro tipo <strong>A</strong>, nome <strong><code>cupom</code></strong>, valor = <strong>IP do VPS</strong>.</p>
+<h2 id="passo-1-criar-o-stack">Passo 1 — Criar o Stack</h2>
+<p>Portainer → <strong>Stacks</strong> → <strong>Add stack</strong>:
+- <strong>Name:</strong> <code>motor-afiliados</code>
+- <strong>Build method:</strong> <strong>Repository</strong>
+- <strong>Repository URL:</strong> <code>https://github.com/recusadooo/motor-afiliados</code>
+- <strong>Reference:</strong> <code>refs/heads/main</code>
+- <strong>Compose path:</strong> <code>docker-compose.yml</code></p>
+<h2 id="passo-2-variaveis-de-ambiente-na-aba-do-stack">Passo 2 — Variáveis de ambiente (na aba do stack)</h2>
+<p>Em <strong>Environment variables</strong> → <em>Add an environment variable</em>, cadastre:</p>
+<table>
+<thead>
+<tr>
+<th>Nome</th>
+<th>Valor</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POSTGRES_PASSWORD</code></td>
+<td>uma senha que você inventa (do banco do app)</td>
+</tr>
+<tr>
+<td><code>SHOPEE_APP_ID</code></td>
+<td>seu AppId da Shopee</td>
+</tr>
+<tr>
+<td><code>SHOPEE_APP_SECRET</code></td>
+<td>seu Secret da Shopee</td>
+</tr>
+<tr>
+<td><code>PUBLIC_APP_URL</code></td>
+<td><code>https://cupom.trakads.cloud</code></td>
+</tr>
+</tbody>
+</table>
+<p><em>(Evolution e OpenAI NÃO vão aqui — você configura depois na aba </em><em>Config</em><em> do painel.)</em></p>
+<p>Clique <strong>Deploy the stack</strong>. O Portainer clona o repo, faz o build da imagem e sobe
+<code>postgres</code>, <code>redis</code>, <code>api</code>, <code>worker</code>.</p>
+<h2 id="passo-3-conferir-que-subiu">Passo 3 — Conferir que subiu</h2>
+<p>No stack, veja os 4 containers <em>running</em>. Pra testar a API, no terminal do VPS:</p>
+<pre><code class="language-bash">curl -s http://127.0.0.1:3000/health      # deve devolver {&quot;ok&quot;:true,...}
+</code></pre>
+<p>(ou veja os logs do container <code>api</code> no Portainer — deve dizer "API ouvindo").</p>
+<h2 id="passo-4-ligar-seu-reverse-proxy-no-app">Passo 4 — Ligar seu reverse proxy no app</h2>
+<p>O app roda; falta seu proxy mandar <code>cupom.trakads.cloud</code> pra ele. O container da API
+fica na rede <code>motor-afiliados_default</code> (criada pelo stack), com nome tipo
+<code>motor-afiliados-api-1</code>, porta <code>3000</code>.</p>
+<p><strong>Se o proxy é Nginx Proxy Manager (o mais comum):</strong>
+1. No Portainer → Containers → seu container do <strong>NPM</strong> → <strong>Join a network</strong> → selecione <strong><code>motor-afiliados_default</code></strong>. (Isso deixa o NPM enxergar a API pelo nome.)
+2. No NPM → <strong>Proxy Hosts</strong> → <em>Add Proxy Host</em>:
+   - Domain Names: <code>cupom.trakads.cloud</code>
+   - Forward Hostname/IP: <code>motor-afiliados-api-1</code>  · Forward Port: <code>3000</code>
+   - Ligue <strong>Websockets Support</strong> e <strong>Block Common Exploits</strong>
+   - Aba <strong>SSL</strong>: <em>Request a new SSL Certificate</em> + <em>Force SSL</em> → Save</p>
+<p><strong>Se o proxy é Traefik / Caddy / nginx puro:</strong> aponte <code>cupom.trakads.cloud</code> → o
+container <code>motor-afiliados-api-1:3000</code> (mesma rede) <strong>com WebSocket</strong>. Me diz qual é que
+eu te dou o bloco exato.</p>
+<blockquote>
+<p>Alternativa (proxy fora do Docker): a API também está publicada em <code>127.0.0.1:3000</code>
+no host — aponte seu proxy pra lá.</p>
+</blockquote>
+<h2 id="passo-5-testar-e-configurar">Passo 5 — Testar e configurar</h2>
+<ul>
+<li>Abra <code>https://cupom.trakads.cloud/health</code> → <code>{"ok":true}</code>.</li>
+<li>Abra <code>https://cupom.trakads.cloud/</code> → o painel.</li>
+<li>Aba <strong>Config</strong>: cole URL + key da sua <strong>Evolution</strong> e a chave da <strong>OpenAI</strong>.</li>
+<li>Aba <strong>Conexões</strong>: conecte/cadastre o número e <strong>marque os grupos</strong>.</li>
+</ul>
+<h2 id="atualizar-depois">Atualizar depois</h2>
+<p>Toda vez que houver mudança no código: no Portainer → o stack → <strong>Pull and redeploy</strong>
+(ou <strong>Update the stack</strong> com <em>Re-pull image and redeploy</em>). Ele puxa do GitHub e sobe de novo.
+(Se preferir 100% automático, o repo também tem GitHub Actions — ver <code>DEPLOY.md</code>.)</p>
+<h2 id="sem-reverse-proxy-caso-raro">Sem reverse proxy? (caso raro)</h2>
+<p>Se a VPS NÃO tiver proxy nas portas 80/443, adicione a variável <code>COMPOSE_PROFILES=edge</code>
+no stack e preencha também <code>API_DOMAIN=cupom.trakads.cloud</code> — aí o Caddy do app sobe e
+cuida do HTTPS sozinho.</p></div>
+
+</body></html>

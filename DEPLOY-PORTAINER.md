@@ -29,8 +29,13 @@ Em **Environment variables** → *Add an environment variable*, cadastre:
 | `SHOPEE_APP_ID` | seu AppId da Shopee |
 | `SHOPEE_APP_SECRET` | seu Secret da Shopee |
 | `PUBLIC_APP_URL` | `https://cupom.trakads.cloud` |
+| `API_DOMAIN` | `cupom.trakads.cloud` |
+| `TRAEFIK_ENTRYPOINT` | o entrypoint HTTPS do seu Traefik (ex.: `websecure` ou `https`) |
+| `TRAEFIK_CERTRESOLVER` | o resolver ACME do seu Traefik (ex.: `letsencrypt`) |
+| `TRAEFIK_NETWORK` | a rede Docker do seu Traefik (ver Passo 4) |
 
 *(Evolution e OpenAI NÃO vão aqui — você configura depois na aba **Config** do painel.)*
+*(Não sabe os 3 valores do Traefik? **Copie dos labels de um serviço que você já expõe pelo Traefik** — Evolution/n8n — no Portainer, na aba Labels daquele container. Ou me mande um desses labels que eu te digo os valores exatos.)*
 
 Clique **Deploy the stack**. O Portainer clona o repo, faz o build da imagem e sobe
 `postgres`, `redis`, `api`, `worker`.
@@ -42,25 +47,34 @@ curl -s http://127.0.0.1:3000/health      # deve devolver {"ok":true,...}
 ```
 (ou veja os logs do container `api` no Portainer — deve dizer "API ouvindo").
 
-## Passo 4 — Ligar seu reverse proxy no app
-O app roda; falta seu proxy mandar `cupom.trakads.cloud` pra ele. O container da API
-fica na rede `motor-afiliados_default` (criada pelo stack), com nome tipo
-`motor-afiliados-api-1`, porta `3000`.
+## Passo 4 — Ligar o Traefik no app
+Com Traefik é por **labels** (o compose já traz, controlados pelas variáveis do Passo 2).
+Falta só o Traefik **enxergar** o container da API na rede Docker.
 
-**Se o proxy é Nginx Proxy Manager (o mais comum):**
-1. No Portainer → Containers → seu container do **NPM** → **Join a network** → selecione **`motor-afiliados_default`**. (Isso deixa o NPM enxergar a API pelo nome.)
-2. No NPM → **Proxy Hosts** → *Add Proxy Host*:
-   - Domain Names: `cupom.trakads.cloud`
-   - Forward Hostname/IP: `motor-afiliados-api-1`  · Forward Port: `3000`
-   - Ligue **Websockets Support** e **Block Common Exploits**
-   - Aba **SSL**: *Request a new SSL Certificate* + *Force SSL* → Save
+**4.1 — Descobrir a rede do seu Traefik:** no Portainer → Containers → o container do
+**Traefik** → aba **Network** (ou Inspect). É a rede por onde ele fala com Evolution/n8n
+(nome comum: `traefik`, `proxy`, ou similar). Ponha esse nome em **`TRAEFIK_NETWORK`** (Passo 2).
 
-**Se o proxy é Traefik / Caddy / nginx puro:** aponte `cupom.trakads.cloud` → o
-container `motor-afiliados-api-1:3000` (mesma rede) **com WebSocket**. Me diz qual é que
-eu te dou o bloco exato.
+**4.2 — Colocar a API na mesma rede do Traefik.** Duas formas:
+- **Simples (Portainer):** Containers → `motor-afiliados-api-1` → **Join a network** → selecione a rede do Traefik. (E confira que `TRAEFIK_NETWORK` tem esse nome.)
+- Ou o Traefik entra na rede do stack: Containers → container do Traefik → **Join a network** → `motor-afiliados_default`, e ponha `TRAEFIK_NETWORK=motor-afiliados_default`.
 
-> Alternativa (proxy fora do Docker): a API também está publicada em `127.0.0.1:3000`
-> no host — aponte seu proxy pra lá.
+**4.3 — Entrypoint e certresolver:** os labels usam `TRAEFIK_ENTRYPOINT` (o entrypoint
+`:443`, ex. `websecure`) e `TRAEFIK_CERTRESOLVER` (o ACME, ex. `letsencrypt`). **Copie os
+valores exatos** de um serviço que você já expõe pelo Traefik (olhe os labels da Evolution/n8n):
+```
+traefik.http.routers.<algo>.entrypoints=SEU_ENTRYPOINT
+traefik.http.routers.<algo>.tls.certresolver=SEU_RESOLVER
+```
+Se não usar `certresolver` por label (ex.: TLS definido no traefik.yml), deixe
+`TRAEFIK_CERTRESOLVER` como está — se der erro de cert, a gente ajusta.
+
+Pronto: ao dar deploy/redeploy do stack, o Traefik já roteia `cupom.trakads.cloud` → a API
+(porta 3000) com TLS.
+
+> Dica: me mande **os labels do Traefik de um serviço seu que já funciona** (Evolution ou
+> n8n) que eu te devolvo os 3 valores (`TRAEFIK_ENTRYPOINT`, `TRAEFIK_CERTRESOLVER`,
+> `TRAEFIK_NETWORK`) já certinhos pra colar.
 
 ## Passo 5 — Testar e configurar
 - Abra `https://cupom.trakads.cloud/health` → `{"ok":true}`.

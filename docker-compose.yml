@@ -51,9 +51,20 @@ services:
       SHOPEE_APP_ID: ${SHOPEE_APP_ID}
       SHOPEE_APP_SECRET: ${SHOPEE_APP_SECRET}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
-    # Expõe a API só no localhost, pro seu reverse proxy (NPM/nginx/Traefik) apontar.
+    # Também publica no localhost (útil pra testar: curl 127.0.0.1:3000/health).
     ports:
       - "127.0.0.1:3000:3000"
+    # --- Traefik (roteia cupom.trakads.cloud -> esta API) ---
+    # Preencha no Portainer: API_DOMAIN, TRAEFIK_ENTRYPOINT, TRAEFIK_CERTRESOLVER,
+    # TRAEFIK_NETWORK (copie entrypoint/certresolver dos seus serviços que já usam Traefik).
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-motor-afiliados_default}"
+      - "traefik.http.routers.motor.rule=Host(`${API_DOMAIN}`)"
+      - "traefik.http.routers.motor.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.motor.tls=true"
+      - "traefik.http.routers.motor.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.services.motor.loadbalancer.server.port=3000"
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
