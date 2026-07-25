@@ -163,12 +163,12 @@ function setView(btn){document.querySelectorAll('.tabs>.tab[data-view]').forEach
   btn.classList.add('active');currentView=btn.dataset.view;
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+currentView).classList.add('active');
-  if(currentView==='conexoes')loadChannels();
-  if(currentView==='config')loadSettings();
-  if(currentView==='dlq')loadDlq();
+  if(currentView==='conexoes')guard(loadChannels,'channels-list');
+  if(currentView==='config')guard(loadSettings,'cfg-status');
+  if(currentView==='dlq')guard(loadDlq,'dlq');
 }
 function setTab(btn){document.querySelectorAll('#view-fila .tab[data-status]').forEach(t=>t.classList.remove('active'));
-  btn.classList.add('active');currentStatus=btn.dataset.status;loadOffers();}
+  btn.classList.add('active');currentStatus=btn.dataset.status;guard(loadOffers,'offers');}
 
 async function loadStats(){
   const s=await api('/api/stats');const o=s.offers||{};
@@ -261,8 +261,20 @@ async function putSettings(body){await api('/api/settings',{method:'PUT',headers
 async function saveAi(){try{const body={};const k=document.getElementById('cfg-key').value.trim();if(k)body.openai_api_key=k;const m=document.getElementById('cfg-model').value.trim();if(m)body.copy_model=m;await putSettings(body);document.getElementById('cfg-key').value='';loadSettings();}catch(e){alert('erro: '+e.message);}}
 async function saveEvolution(){try{const body={evolution_api_url:document.getElementById('evo-url').value.trim()};const k=document.getElementById('evo-key').value.trim();if(k)body.evolution_api_key=k;await putSettings(body);document.getElementById('evo-key').value='';loadSettings();}catch(e){alert('erro: '+e.message);}}
 
-function refreshAll(){loadStats();loadOffers();if(currentView==='dlq')loadDlq();if(currentView==='conexoes')loadChannels();}
-refreshAll();setInterval(loadStats,15000);
+// Mostra o erro NA TELA em vez de deixar "carregando..." pra sempre.
+// (bug real: com a API em 500, o painel ficava eternamente carregando e nao
+// dava nenhuma pista do motivo.)
+function falhou(elId,e){const el=document.getElementById(elId);if(el)
+  el.innerHTML='<div class="empty" style="color:var(--danger)">falhou: '+esc(e.message||String(e))+
+  ' <button class="btn" onclick="refreshAll()">tentar de novo</button></div>';}
+function guard(fn,elId){return Promise.resolve().then(fn).catch(e=>falhou(elId,e));}
+function refreshAll(){
+  guard(loadStats,'stats');
+  guard(loadOffers,'offers');
+  if(currentView==='dlq')guard(loadDlq,'dlq');
+  if(currentView==='conexoes')guard(loadChannels,'channels-list');
+}
+refreshAll();setInterval(()=>guard(loadStats,'stats'),15000);
 </script>
 </body>
 </html>

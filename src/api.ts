@@ -60,22 +60,39 @@ app.use(requireAuth);
 // Painel de controle (Módulo 4) servido estático pela própria API.
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+/**
+ * Envelope obrigatório para handler async no Express 4.
+ * MOTIVO (bug real em produção, 2026-07-25): o Express 4 não captura rejeição de
+ * função async — a rejeição sobe como unhandledRejection e o Node MATA o
+ * processo. Um erro de banco em UMA rota derrubava a API inteira, o Swarm
+ * reiniciava e o painel ficava eternamente em "carregando…" (502/timeout).
+ * `function` (não arrow const) de propósito: é hoisted, e as rotas abaixo usam
+ * isso no momento em que o módulo é avaliado.
+ */
+function wrap(
+  handler: (req: Request, res: Response, next: NextFunction) => Promise<unknown> | unknown,
+) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    Promise.resolve(handler(req, res, next)).catch(next);
+  };
+}
+
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ ok: true, ts: new Date().toISOString() });
 });
 
 // ---- Webhook da Evolution (mensagens de grupos -> enriquecimento) ----
-app.post('/webhook/evolution', async (req: Request, res: Response) => {
+app.post('/webhook/evolution', wrap(async (req: Request, res: Response) => {
   res.status(200).json({ ok: true }); // responde rápido; processa depois
   try {
     await handleEvolutionWebhook(req.body);
   } catch (err) {
     log.error('webhook falhou', { err: err instanceof Error ? err.message : String(err) });
   }
-});
+}));
 
 // ---- Fila de ofertas (dashboard) ----
-app.get('/api/offers', async (req: Request, res: Response) => {
+app.get('/api/offers', wrap(async (req: Request, res: Response) => {
   const status = typeof req.query.status === 'string' ? req.query.status : 'approved';
   const rows = await query(
     `SELECT id, title, price, discount_pct, savings_brl, commission_rate, image_url,
@@ -85,22 +102,22 @@ app.get('/api/offers', async (req: Request, res: Response) => {
     [status],
   );
   res.json(rows);
-});
+}));
 
-app.post('/api/offers/:id/reject', async (req: Request, res: Response) => {
+app.post('/api/offers/:id/reject', wrap(async (req: Request, res: Response) => {
   await query(`UPDATE offers SET status='rejected', reject_reason='rejeitado manualmente' WHERE id=$1`, [
     req.params.id,
   ]);
   res.json({ ok: true });
-});
+}));
 
-app.post('/api/offers/:id/approve', async (req: Request, res: Response) => {
+app.post('/api/offers/:id/approve', wrap(async (req: Request, res: Response) => {
   await query(`UPDATE offers SET status='approved' WHERE id=$1 AND status='pending'`, [req.params.id]);
   res.json({ ok: true });
-});
+}));
 
 // ---- Estatísticas + saúde ----
-app.get('/api/stats', async (_req: Request, res: Response) => {
+app.get('/api/stats', wrap(async (_req: Request, res: Response) => {
   const counts = await query<{ status: string; c: string }>(
     `SELECT status, count(*)::text AS c FROM offers GROUP BY status`,
   );
@@ -118,15 +135,15 @@ app.get('/api/stats', async (_req: Request, res: Response) => {
       breaker: breakerState(`whatsapp:${c.instance_ref}`),
     })),
   });
-});
+}));
 
-app.get('/api/dlq', async (_req: Request, res: Response) => {
+app.get('/api/dlq', wrap(async (_req: Request, res: Response) => {
   const rows = await query(
     `SELECT id, orig_queue, error, channel_id, status, created_at FROM dlq
       WHERE status='pending_review' ORDER BY created_at DESC LIMIT 100`,
   );
   res.json(rows);
-});
+}));
 
 // ---- Conexão de números (QR) e canais ----
 async function evoOr500(res: Response) {
@@ -139,7 +156,7 @@ async function evoOr500(res: Response) {
 }
 
 // Provisiona uma instância (número): cria + configura pra grupos + webhook.
-app.post('/api/instances', async (req: Request, res: Response) => {
+app.post('/api/instances', wrap(async (req: Request, res: Response) => {
   const evo = await evoOr500(res);
   if (!evo) return;
   const name = String(req.body?.name ?? '').trim();
@@ -173,10 +190,10 @@ app.post('/api/instances', async (req: Request, res: Response) => {
     steps.webhook = 'pulado (defina PUBLIC_APP_URL para o listener)';
   }
   res.json({ ok: true, instance: name, role, steps });
-});
+}));
 
 // QR code para escanear (base64 / pairing code).
-app.get('/api/instances/:name/qr', async (req: Request, res: Response) => {
+app.get('/api/instances/:name/qr', wrap(async (req: Request, res: Response) => {
   const evo = await evoOr500(res);
   if (!evo) return;
   try {
@@ -184,9 +201,9 @@ app.get('/api/instances/:name/qr', async (req: Request, res: Response) => {
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
   }
-});
+}));
 
-app.get('/api/instances/:name/state', async (req: Request, res: Response) => {
+app.get('/api/instances/:name/state', wrap(async (req: Request, res: Response) => {
   const evo = await evoOr500(res);
   if (!evo) return;
   try {
@@ -194,9 +211,9 @@ app.get('/api/instances/:name/state', async (req: Request, res: Response) => {
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
   }
-});
+}));
 
-app.get('/api/instances/:name/groups', async (req: Request, res: Response) => {
+app.get('/api/instances/:name/groups', wrap(async (req: Request, res: Response) => {
   const evo = await evoOr500(res);
   if (!evo) return;
   try {
@@ -205,10 +222,10 @@ app.get('/api/instances/:name/groups', async (req: Request, res: Response) => {
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
   }
-});
+}));
 
 // Configura o webhook do listener para apontar para este app.
-app.post('/api/instances/:name/webhook', async (req: Request, res: Response) => {
+app.post('/api/instances/:name/webhook', wrap(async (req: Request, res: Response) => {
   const evo = await evoOr500(res);
   if (!evo) return;
   const cfg = loadConfig();
@@ -222,20 +239,20 @@ app.post('/api/instances/:name/webhook', async (req: Request, res: Response) => 
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
   }
-});
+}));
 
 // Lista canais cadastrados.
-app.get('/api/channels', async (_req: Request, res: Response) => {
+app.get('/api/channels', wrap(async (_req: Request, res: Response) => {
   res.json(
     await query(
       `SELECT id, role, instance_ref, target_ref, display_name, status, daily_cap, sent_today
          FROM channels ORDER BY created_at`,
     ),
   );
-});
+}));
 
 // Registra um canal (número + grupo + nome).
-app.post('/api/channels', async (req: Request, res: Response) => {
+app.post('/api/channels', wrap(async (req: Request, res: Response) => {
   const { role, instance_ref, target_ref, display_name } = req.body ?? {};
   if (role !== 'poster' && role !== 'listener') {
     return res.status(400).json({ error: 'role deve ser poster ou listener' });
@@ -253,10 +270,10 @@ app.post('/api/channels', async (req: Request, res: Response) => {
     [role, instance_ref, target_ref ?? null, display_name ?? instance_ref],
   );
   res.json({ ok: true, id: row?.id });
-});
+}));
 
 // Registra VÁRIOS grupos de uma vez para o mesmo número (escolher onde disparar).
-app.post('/api/channels/bulk', async (req: Request, res: Response) => {
+app.post('/api/channels/bulk', wrap(async (req: Request, res: Response) => {
   const { instance_ref, groups } = req.body ?? {};
   if (!instance_ref) return res.status(400).json({ error: 'instance_ref obrigatório' });
   if (!Array.isArray(groups) || groups.length === 0) {
@@ -275,10 +292,10 @@ app.post('/api/channels/bulk', async (req: Request, res: Response) => {
     created += 1;
   }
   res.json({ ok: true, created });
-});
+}));
 
 // Pausar / reativar um canal (liga/desliga o disparo naquele grupo).
-app.patch('/api/channels/:id', async (req: Request, res: Response) => {
+app.patch('/api/channels/:id', wrap(async (req: Request, res: Response) => {
   const status = req.body?.status;
   if (!['active', 'paused'].includes(status)) {
     return res.status(400).json({ error: 'status deve ser active ou paused' });
@@ -286,10 +303,10 @@ app.patch('/api/channels/:id', async (req: Request, res: Response) => {
   await query(`UPDATE channels SET status = $1 WHERE id = $2`, [status, req.params.id]);
   if (status !== 'active') await removeDripJob(req.params.id!);
   res.json({ ok: true });
-});
+}));
 
 // Remover um canal (para de disparar naquele grupo e apaga o histórico dele).
-app.delete('/api/channels/:id', async (req: Request, res: Response) => {
+app.delete('/api/channels/:id', wrap(async (req: Request, res: Response) => {
   const id = req.params.id!;
   await removeDripJob(id);
   await tx(async (c) => {
@@ -298,14 +315,14 @@ app.delete('/api/channels/:id', async (req: Request, res: Response) => {
     await c.query(`DELETE FROM channels WHERE id = $1`, [id]);
   });
   res.json({ ok: true });
-});
+}));
 
 // ---- Configurações (chave OpenAI / modelo) pela interface ----
-app.get('/api/settings', async (_req: Request, res: Response) => {
+app.get('/api/settings', wrap(async (_req: Request, res: Response) => {
   res.json(await settingsStatus());
-});
+}));
 
-app.put('/api/settings', async (req: Request, res: Response) => {
+app.put('/api/settings', wrap(async (req: Request, res: Response) => {
   const body = (req.body ?? {}) as Record<string, string>;
   const applied: string[] = [];
   for (const key of SETTING_KEYS) {
@@ -316,10 +333,34 @@ app.put('/api/settings', async (req: Request, res: Response) => {
     }
   }
   res.json({ ok: true, applied, settings: await settingsStatus() });
+}));
+
+/**
+ * Tratador de erro (tem que vir DEPOIS de todas as rotas, e com 4 argumentos —
+ * é assim que o Express identifica um error handler). Devolve 500 com mensagem
+ * em vez de deixar o processo morrer.
+ */
+app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  const msg = err instanceof Error ? err.message : String(err);
+  log.error('erro na rota', { path: req.path, method: req.method, err: msg });
+  if (res.headersSent) return;
+  res.status(500).json({ error: msg });
 });
 
 export function startApi(): void {
   const cfg = loadConfig();
+
+  // Rede de segurança: nada de crash loop silencioso por promessa solta.
+  process.on('unhandledRejection', (reason) => {
+    log.error('unhandledRejection (processo mantido vivo)', {
+      err: reason instanceof Error ? reason.message : String(reason),
+    });
+  });
+  process.on('uncaughtException', (err) => {
+    // Estado desconhecido: registra e sai para o Swarm recriar limpo.
+    log.error('uncaughtException — reiniciando', { err: err.message });
+    process.exit(1);
+  });
   const protegido = Boolean(cfg.DASHBOARD_USER && cfg.DASHBOARD_PASSWORD);
   const server = app.listen(cfg.API_PORT, () => {
     log.info('API ouvindo', { port: cfg.API_PORT, painelProtegido: protegido });

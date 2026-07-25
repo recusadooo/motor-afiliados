@@ -214,7 +214,7 @@ export async function ensureDripJobs(): Promise<number> {
     await q.add(
       'tick',
       { channelId: ch.id },
-      { jobId: `drip:${ch.id}`, removeOnComplete: true, removeOnFail: { age: 24 * 3600 } },
+      { jobId: `drip-${ch.id}`, removeOnComplete: true, removeOnFail: { age: 24 * 3600 } },
     );
   }
   log.info('drip jobs garantidos', { channels: channels.length });
@@ -223,7 +223,7 @@ export async function ensureDripJobs(): Promise<number> {
 
 /** Remove o job de gotejamento de um canal (ao pausar/remover). */
 export async function removeDripJob(channelId: string): Promise<void> {
-  const job = await getDripQueue().getJob(`drip:${channelId}`);
+  const job = await getDripQueue().getJob(`drip-${channelId}`);
   if (job) await job.remove().catch(() => {});
 }
 
@@ -245,7 +245,7 @@ export async function nudgePriority(): Promise<void> {
     if (!sched?.next_run_at) continue;
     const remaining = new Date(sched.next_run_at).getTime() - Date.now();
     if (remaining <= minGapMs) continue; // já vai disparar em breve
-    const job = await q.getJob(`drip:${ch.id}`);
+    const job = await q.getJob(`drip-${ch.id}`);
     if (!job) continue;
     try {
       if ((await job.getState()) === 'delayed') {

@@ -86,7 +86,7 @@ export async function runCapture(processInline = false): Promise<CaptureStats> {
           'process',
           { offer, rawCaptureId: inserted.id },
           {
-            jobId: `proc:${dedupKey(offer)}`,
+            jobId: `proc-${dedupKey(offer)}`,
             removeOnComplete: { age: 3600, count: 1000 },
             removeOnFail: { age: 24 * 3600 },
           },
