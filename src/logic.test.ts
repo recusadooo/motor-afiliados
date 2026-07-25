@@ -1,8 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeText, toNum } from './util';
-import { hasLiteralNumbers } from './pipeline/copy';
+import { hasLiteralNumbers, copyWithoutAi } from './pipeline/copy';
 import { assessDiscount } from './pipeline/fakeDiscount';
+import { matchesKeyword, rejectByKeyword } from './pipeline/filters';
+import { DEFAULT_BLOCKED_KEYWORDS, type Config } from './config';
 import type { NormalizedOffer } from './types';
 
 test('normalizeText remove emoji/pontuação/acentos e colapsa espaços', () => {
@@ -60,4 +62,41 @@ test('assessDiscount: "de/por" inflado acima da mediana real vira fake', () => {
   // preço 50, anúncio diz 80% off => "original" ~250, mas mediana real é 60
   const a = assessDiscount(offer({ price: 50, discountPct: 80 }), { count: 8, min: 50, median: 60, max: 70 }, 95);
   assert.equal(a.fake, true);
+});
+
+// ---- Regressões pegas no dry-run ao vivo (2026-07-25) ----
+
+test('matchesKeyword corta produto fora do nicho e aceita plural/derivado', () => {
+  // a busca da Shopee por "notebook" devolvia papel/caderno
+  assert.equal(matchesKeyword('Papel Fotográfico 180g Glossy A4', 'notebook'), false);
+  assert.equal(matchesKeyword('Notebook Lenovo Ideapad 3i', 'notebook'), true);
+  // substring de propósito: plural e derivado passam
+  assert.equal(matchesKeyword('Fones De Ouvido TWS Bluetooth', 'fone de ouvido'), true);
+  assert.equal(matchesKeyword('Cafeteira Elétrica 30 xícaras', 'cafe'), true);
+  // keyword com 2 tokens exige os dois -> monitor de pressão não passa
+  assert.equal(matchesKeyword('Monitor De Pressão Arterial De Pulso', 'monitor gamer'), false);
+  assert.equal(matchesKeyword('Monitor Gamer 24 165Hz', 'monitor gamer'), true);
+});
+
+test('blocklist não dá falso-positivo em produto legítimo', () => {
+  const cfg = { BLOCKED_KEYWORDS: DEFAULT_BLOCKED_KEYWORDS } as unknown as Config;
+  // caso real: termômetro "para bebê e adulto" era bloqueado pela palavra solta "adulto"
+  assert.equal(
+    rejectByKeyword(offer({ title: 'Termômetro Digital Infravermelho Bebê e Adulto' }), cfg).rejected,
+    false,
+  );
+  assert.equal(rejectByKeyword(offer({ title: 'Porta Comprimido Semanal' }), cfg).rejected, false);
+  // e continua bloqueando o que deve
+  assert.equal(rejectByKeyword(offer({ title: 'Kit Sex Shop Casal' }), cfg).rejected, true);
+  assert.equal(rejectByKeyword(offer({ title: 'Cigarro Eletrônico Vape 5000 puffs' }), cfg).rejected, true);
+});
+
+test('copy de fallback usa desconto e economia quando o histórico confirma', () => {
+  const o = offer({ title: 'Air Fryer 5L', price: 200 });
+  const semHistorico = copyWithoutAi(o, assessDiscount(o, { count: 0, min: null, median: null, max: null }, 95));
+  assert.equal(/abaixo do preço/.test(semHistorico.copy.body), false); // não promete o que não mediu
+
+  const comHistorico = copyWithoutAi(o, assessDiscount(o, { count: 8, min: 200, median: 500, max: 520 }, 95));
+  assert.match(comHistorico.copy.body, /60% abaixo do preço/);
+  assert.match(comHistorico.copy.body, /economiza/);
 });

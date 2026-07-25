@@ -13,6 +13,7 @@
     "dev:worker": "tsx watch src/worker.ts",
     "capture:once": "tsx src/commands/captureOnce.ts",
     "shopee:check": "tsx src/commands/shopeeCheck.ts",
+    "dryrun": "tsx src/commands/dryRun.ts",
     "test": "node --import tsx --test src/logic.test.ts"
   },
   "dependencies": {

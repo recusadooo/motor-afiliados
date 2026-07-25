@@ -54,8 +54,8 @@ app/
   PERGUNTAS.md         ← o que depende de você (segredos, número, keywords…)
   .env.example         ← nomes das variáveis (sem valores)
   Dockerfile           ← build multi-stage (TS -> dist)
-  docker-compose.yml   ← postgres, redis, evolution, api, worker, caddy
-  Caddyfile            ← TLS automático; publica só a API
+  docker-compose.yml   ← Swarm stack: postgres, redis, api, worker (Evolution é externa)
+  DEPLOY-PORTAINER.md  ← subir no Portainer/Swarm com Traefik v3 (passo a passo)
   db/schema.sql        ← modelo de dados PostgreSQL
   src/
     config.ts          ← env validado (zod)
@@ -91,11 +91,12 @@ npm run shopee:check       # testa a Shopee Open API ao vivo (read-only)
 npm run capture:once       # 1 ciclo de captura -> banco (precisa Postgres+Redis)
 ```
 
-**Produção (VPS, Docker):**
-1. Copie `app/` para o servidor (só a subpasta — a raiz nunca sobe).
-2. `cp .env.example .env` e preencha (`POSTGRES_PASSWORD`, `API_DOMAIN`, `PUBLIC_APP_URL`, Shopee). `chmod 600 .env`. (Evolution e OpenAI podem ir na aba Config.)
-3. Aponte o DNS do seu subdomínio para o IP do VPS (ver `PERGUNTAS.md`).
-4. `docker compose up -d` (sobe postgres, redis, api, worker, caddy — a Evolution é externa, já na sua VPS).
+**Produção (VPS — Docker Swarm + Traefik v3, via Portainer):** passo a passo completo em
+[`DEPLOY-PORTAINER.md`](DEPLOY-PORTAINER.md). Resumo:
+1. Aponte o DNS (registro **A** do subdomínio → IP do VPS).
+2. GitHub Actions já publica a imagem em `ghcr.io/recusadooo/motor-afiliados:latest` a cada push.
+3. Portainer (ambiente Swarm) → **Stacks → Add stack → Repository** apontando pro `docker-compose.yml` deste repo.
+4. Variáveis na aba do stack: `POSTGRES_PASSWORD`, `SHOPEE_APP_ID`, `SHOPEE_APP_SECRET`, `API_DOMAIN`, `PUBLIC_APP_URL`, `TRAEFIK_ENTRYPOINT`, `TRAEFIK_CERTRESOLVER`. O Traefik roteia e emite o TLS pelos `deploy.labels`; o `worker` aplica o schema do banco no boot.
 5. Abra o painel em `https://SEU-DOMINIO/` → aba **Config**: cole a URL + key da sua **Evolution** (e a chave da OpenAI).
 6. Aba **Conexões**: número novo → **Criar + configurar** (o app cria a instância na Evolution e já a configura pra grupos + webhook) → **QR** → **Listar grupos** → **Registrar canal**. Número que já existe → só registrar (nome da instância + id do grupo). Sem SQL manual.
 

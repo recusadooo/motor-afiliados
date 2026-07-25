@@ -40,6 +40,9 @@ services:
       SHOPEE_APP_ID: ${SHOPEE_APP_ID}
       SHOPEE_APP_SECRET: ${SHOPEE_APP_SECRET}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
+      # Senha do painel — OPCIONAL. Vazio = painel aberto (escolha do dono).
+      DASHBOARD_USER: ${DASHBOARD_USER:-}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
     networks: [internal, TrakAdsNet]
     deploy:
       restart_policy: { condition: any }

@@ -6,90 +6,138 @@ import { z } from 'zod';
  * rodar o pipeline de captura sem WhatsApp/IA conectados (modo de validação).
  */
 
+/**
+ * IMPORTANTE: variável AUSENTE e variável VAZIA são tratadas igual (= default).
+ * O compose do Swarm injeta `${VAR:-}`, que chega como string vazia quando você
+ * não preenche no Portainer — sem isso, um campo em branco atropelaria o default
+ * (ex.: AUTO_APPROVE='' travaria tudo em 'pending' sem erro visível).
+ */
+const empty = (v: string | undefined) => v === undefined || v.trim() === '';
+
 const bool = (def: boolean) =>
   z
     .string()
     .optional()
-    .transform((v) => (v === undefined ? def : /^(1|true|yes|on)$/i.test(v)));
+    .transform((v) => (empty(v) ? def : /^(1|true|yes|on)$/i.test(v as string)));
+
+/** String com default: vazio cai no default. */
+const str = (def: string) =>
+  z
+    .string()
+    .optional()
+    .transform((v) => (empty(v) ? def : (v as string).trim()));
+
+/** String opcional: vazio vira undefined (não quebra validação de URL). */
+const optStr = () =>
+  z
+    .string()
+    .optional()
+    .transform((v) => (empty(v) ? undefined : (v as string).trim()));
+
+/** URL opcional: vazio vira undefined; preenchido é validado. */
+const optUrl = () => optStr().pipe(z.string().url().optional());
+
+/** URL com default: vazio cai no default; o resultado é sempre validado. */
+const url = (def: string) => str(def).pipe(z.string().url());
 
 const int = (def: number) =>
   z
     .string()
     .optional()
-    .transform((v) => (v === undefined || v === '' ? def : Number(v)))
+    .transform((v) => (empty(v) ? def : Number(v)))
     .pipe(z.number().int());
 
 const num = (def: number) =>
   z
     .string()
     .optional()
-    .transform((v) => (v === undefined || v === '' ? def : Number(v)))
+    .transform((v) => (empty(v) ? def : Number(v)))
     .pipe(z.number());
 
+/**
+ * Lista padrão de bloqueio. Exportada para os testes travarem os
+ * falso-positivos encontrados ao vivo (palavra solta "adulto" bloqueava
+ * termômetro "para bebê e adulto") — termos ambíguos viraram FRASES.
+ */
+export const DEFAULT_BLOCKED_KEYWORDS =
+  'aposta,bet,cassino,cigarro,tabaco,vape,narguile,arma de fogo,munição,pistola,airsoft,' +
+  'conteúdo adulto,sex shop,sexual,erótico,vibrador,plug anal,' +
+  'medicamento,tarja preta,tarja vermelha,anabolizante,emagrecedor,suplemento emagrecedor,' +
+  'cripto,bitcoin,consórcio,empréstimo,agiota';
+
 const schema = z.object({
-  NODE_ENV: z.string().default('production'),
+  NODE_ENV: str('production'),
   API_PORT: int(3000),
-  API_DOMAIN: z.string().optional(),
+  API_DOMAIN: optStr(),
 
   // ---- Shopee Affiliate Open API (obrigatório: é a fonte de produção) ----
   SHOPEE_APP_ID: z.string().min(1, 'SHOPEE_APP_ID ausente'),
   SHOPEE_APP_SECRET: z.string().min(1, 'SHOPEE_APP_SECRET ausente'),
-  SHOPEE_API_ENDPOINT: z
-    .string()
-    .url()
-    .default('https://open-api.affiliate.shopee.com.br/graphql'),
+  SHOPEE_API_ENDPOINT: url('https://open-api.affiliate.shopee.com.br/graphql'),
 
   // ---- Infra ----
   DATABASE_URL: z.string().min(1, 'DATABASE_URL ausente'),
-  REDIS_URL: z.string().default('redis://redis:6379'),
+  REDIS_URL: str('redis://redis:6379'),
 
   // ---- Evolution API (WhatsApp) — já existe na VPS; aponte para ela ----
-  EVOLUTION_API_URL: z.string().url().optional(),
-  EVOLUTION_API_KEY: z.string().optional(),
-  WA_POSTER_INSTANCE: z.string().default('poster'),
-  WA_LISTENER_INSTANCE: z.string().default('listener'),
+  EVOLUTION_API_URL: optUrl(),
+  EVOLUTION_API_KEY: optStr(),
+  WA_POSTER_INSTANCE: str('poster'),
+  WA_LISTENER_INSTANCE: str('listener'),
 
-  // URL pública do PRÓPRIO app (para configurar o webhook do listener). Ex.: https://api.SEU-DOMINIO
-  PUBLIC_APP_URL: z.string().url().optional(),
+  // URL pública do PRÓPRIO app (para configurar o webhook do listener). Ex.: https://cupom.SEU-DOMINIO
+  PUBLIC_APP_URL: optUrl(),
 
   // ---- IA (copy) — opcional; sem chave, cai no fallback de copy original ----
-  OPENAI_API_KEY: z.string().optional(),
-  OPENAI_API_ENDPOINT: z.string().url().default('https://api.openai.com/v1'),
+  OPENAI_API_KEY: optStr(),
+  OPENAI_API_ENDPOINT: url('https://api.openai.com/v1'),
   // ATENÇÃO: o id 'gpt-5.4-mini' foi a escolha do usuário mas ainda NÃO foi
   // confirmado em doc oficial — mantido configurável de propósito (ver PERGUNTAS.md).
-  COPY_MODEL: z.string().default('gpt-5.4-mini'),
-  MODERATION_MODEL: z.string().default('omni-moderation-latest'),
+  COPY_MODEL: str('gpt-5.4-mini'),
+  MODERATION_MODEL: str('omni-moderation-latest'),
 
   // ---- SubIds de rastreio nos links de afiliado (até 5; a origem entra dinâmica) ----
-  SUBID_CAMPAIGN: z.string().default('motor'),
+  SUBID_CAMPAIGN: str('motor'),
 
   // ---- Captura (produção) ----
   // productOfferV2 sem keyword+listType:1 voltou vazio no teste; busca por keyword
   // funciona. Lista editável (ver PERGUNTAS.md).
-  CAPTURE_KEYWORDS: z
-    .string()
-    .default(
-      // Tecnologia / PC
-      'notebook,monitor,teclado,mouse gamer,headset,fone de ouvido,ssd,memoria ram,placa de video,processador,webcam,roteador,cadeira gamer,celular,carregador,power bank,cabo usb,smartwatch,tablet,caixa de som,pendrive,cartao de memoria,impressora,' +
+  CAPTURE_KEYWORDS: str(
+    // Tecnologia / PC
+    'notebook,monitor gamer,monitor led,teclado,mouse gamer,headset gamer,fone de ouvido,ssd,memoria ram,placa de video,processador,webcam,roteador,cadeira gamer,celular,carregador,power bank,cabo usb,smartwatch,tablet,caixa de som,pendrive,cartao de memoria,impressora,' +
       // Casa / eletrodomésticos
       'geladeira,fogao,microondas,liquidificador,batedeira,cafeteira,air fryer,aspirador de po,ventilador,panela,ferro de passar,chaleira eletrica,purificador de agua,robo aspirador,' +
       // Comida / condimentos
       'maionese,ketchup,mostarda,azeite,cafe,achocolatado,chocolate,macarrao,tempero,oleo de cozinha,leite condensado',
-    ),
+  ),
   CAPTURE_SORT_TYPE: int(2), // 2 = mais vendidos
   CAPTURE_LIMIT: int(30),
   CAPTURE_MIN_COMMISSION: num(0), // decimal (0.05 = 5%); 0 = sem mínimo
-  CAPTURE_CRON: z.string().default('*/30 * * * *'), // a cada 30 min
+  CAPTURE_CRON: str('*/30 * * * *'), // a cada 30 min
+  // Piso de preço: desligado por padrão (0) — o nicho inclui comida/condimento,
+  // que custa pouco e ainda assim é oferta boa. Use se quiser só ticket alto.
+  CAPTURE_MIN_PRICE: num(0),
+  // Ganho mínimo por venda (preço x comissão), em R$. É o filtro que realmente
+  // separa oferta de bugiganga: no dry-run cortou bloco de notas de R$3,95
+  // (R$0,32 de comissão) sem derrubar maionese de R$8 (R$0,80).
+  CAPTURE_MIN_COMMISSION_BRL: num(0.5),
+  // Exige que o título contenha os tokens da keyword buscada (corta "papel" em
+  // busca de "notebook" e "monitor de pressão" em busca de "monitor").
+  CAPTURE_REQUIRE_KEYWORD_MATCH: bool(true),
+  // Acessório/bugiganga que casa com a keyword mas não é a oferta desejada
+  // (ex.: "capa para notebook" quando o alvo é o notebook). Vazio desliga.
+  EXCLUDED_TITLE_WORDS: str(
+    'capa,pelicula,película,adesivo,chaveiro,miniatura,replica,réplica,brinde,protetor de tela',
+  ),
 
   // ---- Filtros ----
   // Desconto >= este valor é tratado como provável erro/golpe e vai p/ revisão.
   FAKE_DISCOUNT_MAX_PCT: num(95),
-  // Categorias/palavras bloqueadas por padrão (lista editável; ver PERGUNTAS.md).
-  BLOCKED_KEYWORDS: z
-    .string()
-    .default(
-      'aposta,bet,cassino,cigarro,tabaco,vape,arma,munição,pistola,adulto,sexual,erótico,medicamento,remédio,tarja,anabolizante,emagrecedor,cripto,bitcoin,consórcio,empréstimo,agiota',
-    ),
+  // Categorias/palavras bloqueadas (lista editável; ver PERGUNTAS.md).
+  // CUIDADO com palavra solta: no dry-run "adulto" bloqueou um termômetro
+  // ("para bebê e adulto") e "remédio" pegaria "porta-remédio". Por isso os
+  // termos ambíguos viraram FRASES.
+  BLOCKED_KEYWORDS: str(DEFAULT_BLOCKED_KEYWORDS),
 
   // ---- Fura-fila (defaults; também por-canal no banco) ----
   PRIORITY_MIN_DISCOUNT_PCT: num(60),
@@ -99,6 +147,12 @@ const schema = z.object({
 
   // ---- Aprovação: 100% automático (true) ou fila manual (false) ----
   AUTO_APPROVE: bool(true),
+
+  // ---- Senha do painel (OPCIONAL) ----
+  // Vazio = painel aberto (escolha do dono, uso pessoal). Preencher os DOIS
+  // liga HTTP Basic no painel e nas rotas /api sem mexer em código.
+  DASHBOARD_USER: z.string().optional(),
+  DASHBOARD_PASSWORD: z.string().optional(),
 });
 
 export type Config = z.infer<typeof schema>;

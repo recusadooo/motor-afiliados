@@ -7,7 +7,13 @@ import { dedupKey } from './normalize';
 import { claimFresh } from './dedup';
 import { recordPrice, getPriceStats } from './priceHistory';
 import { assessDiscount } from './fakeDiscount';
-import { rejectByKeyword, rejectByPriceSanity } from './filters';
+import {
+  rejectByKeyword,
+  rejectByPriceSanity,
+  rejectByPriceFloor,
+  rejectByCommissionValue,
+  rejectByExcludedWord,
+} from './filters';
 import { makeAffiliateLink } from './affiliate';
 import { generateCopy } from './copy';
 
@@ -44,7 +50,13 @@ export async function processOffer(
   const disc = assessDiscount(offer, stats, cfg.FAKE_DISCOUNT_MAX_PCT);
 
   // Filtros (curto-circuito no 1º fail).
-  const checks = [rejectByPriceSanity(offer), rejectByKeyword(offer, cfg)];
+  const checks = [
+    rejectByPriceSanity(offer),
+    rejectByPriceFloor(offer, cfg.CAPTURE_MIN_PRICE),
+    rejectByCommissionValue(offer, cfg.CAPTURE_MIN_COMMISSION_BRL),
+    rejectByKeyword(offer, cfg),
+    rejectByExcludedWord(offer, cfg),
+  ];
   const failed = checks.find((c) => c.rejected);
   const reason = failed?.reason ?? (disc.fake ? disc.fakeReason : undefined);
   if (failed || disc.fake) {

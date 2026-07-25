@@ -10,27 +10,40 @@
 - **Modelo de IA**: `gpt-5.4-mini` com fallback automático — e você configura pela interface.
 - **Evolution**: já roda na sua VPS; o app aponta para ela (não subo outra).
 
-## 🔴 1. `.env` do servidor — o mínimo (você preenche; eu NUNCA vejo)
-Importante: você **não me dá** esses valores. Eles ficam no `.env` no seu servidor e o
-app lê em runtime. O mínimo é:
+## 🔴 1. Variáveis do stack — o mínimo (você preenche; eu NUNCA vejo)
+Deploy é **Docker Swarm via Portainer** (ver `DEPLOY-PORTAINER.md`), então esses valores
+vão na aba **Environment variables** do stack no Portainer — não num `.env` de arquivo.
+Você **não me dá** esses valores. O mínimo é:
 ```
 POSTGRES_PASSWORD=...            # VOCÊ INVENTA — senha do banco NOVO que este app cria (não é um segredo que você já tem)
-API_DOMAIN=api.suamarca.com.br   # seu subdomínio (ver DNS)
-PUBLIC_APP_URL=https://api.suamarca.com.br   # p/ o app configurar o webhook do listener
-# SHOPEE_APP_ID / SHOPEE_APP_SECRET — já funcionam
+SHOPEE_APP_ID / SHOPEE_APP_SECRET  # já funcionam (testados ao vivo)
+API_DOMAIN=cupom.trakads.cloud             # seu subdomínio (ver DNS)
+PUBLIC_APP_URL=https://cupom.trakads.cloud # p/ o app configurar o webhook do listener
+TRAEFIK_ENTRYPOINT=websecure
+TRAEFIK_CERTRESOLVER=letsencryptresolver
 ```
 A **Evolution** (URL + key global) e a **OpenAI** (chave + modelo) você configura pela
-aba **Config** do painel — não precisa no `.env`. (Se preferir, `EVOLUTION_API_URL/KEY` e
-`OPENAI_API_KEY` no `.env` também funcionam.)
+aba **Config** do painel — não precisa aqui. (Se preferir, `EVOLUTION_API_URL/KEY` e
+`OPENAI_API_KEY` como variáveis também funcionam.)
+
+**Senha do painel (opcional, decisão sua = sem senha):** o painel fica **aberto** para
+quem souber a URL. Se um dia quiser trancar, basta definir `DASHBOARD_USER` e
+`DASHBOARD_PASSWORD` no stack — o navegador passa a pedir login. Sem essas duas
+variáveis, segue aberto (o log do `api` avisa no boot).
 
 ## 🟠 2. DNS — para onde apontar (instruções)
-No painel do seu provedor de domínio, crie **um registro do tipo A**:
+No painel do seu provedor de domínio (`trakads.cloud`), crie **um registro do tipo A**:
 - **Tipo:** A (Address)
-- **Nome/Host:** `api` (para ficar `api.suamarca.com.br`) — ou `@` se for o domínio raiz
-- **Valor/Aponta para:** **o IP público do seu VPS** (o mesmo que você usa pra SSH — está no seu `.env`)
+- **Nome/Host:** `cupom` (para ficar `cupom.trakads.cloud`) — ou `@` se for o domínio raiz
+- **Valor/Aponta para:** **o IP público do seu VPS** (o mesmo que você usa pra SSH)
 - **TTL:** padrão (auto)
+- **Proxy (se for Cloudflare):** **DNS only** (nuvem cinza) — com o proxy ligado, o
+  Let's Encrypt do seu Traefik pode não validar por HTTP-01.
 
-Depois coloque esse domínio em `API_DOMAIN` no `.env`. O **Caddy emite o HTTPS sozinho** (Let's Encrypt) quando o app subir. Propagação do DNS pode levar de minutos a algumas horas. Teste com `https://api.suamarca.com.br/health` (deve responder `{"ok":true}`).
+Depois coloque esse domínio em `API_DOMAIN`. O **Traefik emite o HTTPS sozinho**
+(resolver `letsencryptresolver`) quando o stack subir. Propagação do DNS pode levar de
+minutos a algumas horas. Teste com `https://cupom.trakads.cloud/health` (deve responder
+`{"ok":true}`).
 
 ## 🟡 3. Conectar/cadastrar o número (aba **Conexões**)
 Depois de configurar a Evolution na aba Config, é tudo pelo painel:

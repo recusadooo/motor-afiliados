@@ -3,13 +3,17 @@ import { log } from '../logger';
 import { queryOne } from '../db';
 import { productOfferV2 } from '../shopee/queries';
 import { normalizeProduct, contentHash, dedupKey } from '../pipeline/normalize';
+import { matchesKeyword } from '../pipeline/filters';
 import { processOffer } from '../pipeline/process';
 import { getProcessQueue } from '../queue/queues';
 
 export interface CaptureStats {
   captured: number;
   enqueued: number;
+  /** descartada por comissão abaixo do mínimo */
   skipped: number;
+  /** descartada por não casar com a keyword buscada (fora do nicho) */
+  offNiche: number;
   processedInline: number;
 }
 
@@ -31,7 +35,7 @@ export async function runCapture(processInline = false): Promise<CaptureStats> {
   const cfg = loadConfig();
   const keywords = cfg.CAPTURE_KEYWORDS.split(',').map((k) => k.trim()).filter(Boolean);
   const sourceId = await ensureShopeeSource();
-  const stats: CaptureStats = { captured: 0, enqueued: 0, skipped: 0, processedInline: 0 };
+  const stats: CaptureStats = { captured: 0, enqueued: 0, skipped: 0, offNiche: 0, processedInline: 0 };
 
   for (const keyword of keywords) {
     let page;
@@ -51,6 +55,12 @@ export async function runCapture(processInline = false): Promise<CaptureStats> {
 
     for (const node of page.nodes) {
       const offer = normalizeProduct(node);
+      // Relevância: a busca da Shopee devolve muito produto fora do nicho
+      // (ex.: "notebook" -> papel/caderno). Corta antes de encher a fila.
+      if (cfg.CAPTURE_REQUIRE_KEYWORD_MATCH && !matchesKeyword(offer.title, keyword)) {
+        stats.offNiche += 1;
+        continue;
+      }
       if (offer.commissionRate != null && offer.commissionRate < cfg.CAPTURE_MIN_COMMISSION) {
         stats.skipped += 1;
         continue;

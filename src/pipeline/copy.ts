@@ -60,17 +60,30 @@ function substitute(text: string, ph: Record<string, string>): string {
 }
 
 function fallbackCopy(offer: NormalizedOffer, ph: Record<string, string>): CopyResult {
+  // Usa TODOS os placeholders disponíveis. Só entram desconto/economia quando o
+  // price_history confirma (buildPlaceholders só preenche se disc.confident) —
+  // então a frase nunca promete desconto que o app não mediu.
   const parts = [`🔥 ${offer.title}`, `Por apenas ${ph.preco}`];
+  if (ph.desconto) parts.push(`📉 ${ph.desconto} abaixo do preço que costuma custar`);
+  if (ph.economia) parts.push(`💰 Você economiza ${ph.economia}`);
   const body = parts.filter(Boolean).join('\n');
   return {
     copy: {
-      headline: `🔥 Achado`,
+      headline: ph.desconto ? `🔥 Baixou de preço` : `🔥 Achado`,
       body: `${body}\n\n#publicidade`,
       hashtags: ['#oferta', '#publicidade'],
       fallback: true,
     },
     placeholders: ph,
   };
+}
+
+/**
+ * Copy determinística (sem IA) — o que sai quando a OpenAI não está configurada
+ * ou falha. Exposta para o dry-run poder mostrar a mensagem final sem rede/banco.
+ */
+export function copyWithoutAi(offer: NormalizedOffer, disc: DiscountAssessment): CopyResult {
+  return fallbackCopy(offer, buildPlaceholders(offer, disc));
 }
 
 export async function generateCopy(

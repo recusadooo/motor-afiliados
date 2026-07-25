@@ -1,5 +1,6 @@
 import path from 'node:path';
-import express, { type Request, type Response } from 'express';
+import { timingSafeEqual } from 'node:crypto';
+import express, { type Request, type Response, type NextFunction } from 'express';
 import { WebSocketServer } from 'ws';
 import { loadConfig } from './config';
 import { log } from './logger';
@@ -16,11 +17,45 @@ import { settingsStatus, setSetting, SETTING_KEYS } from './settings';
  *  - endpoints do dashboard (fila, aprovação/rejeição manual, stats, saúde)
  *  - health check
  *  - WebSocket para atualização em tempo real
- * Só a API é exposta (via Caddy). O dashboard (Next.js) é uma app separada.
+ * Só a API é exposta (via Traefik, no domínio API_DOMAIN).
  */
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
+
+/**
+ * Proteção OPCIONAL do painel (HTTP Basic) — decisão do dono: fica ABERTO por
+ * padrão (uso pessoal). Se DASHBOARD_USER e DASHBOARD_PASSWORD forem definidos,
+ * a senha passa a ser exigida sem mexer no código. Livres de senha sempre:
+ * /health (monitoramento) e /webhook/* (a Evolution chama sem credencial).
+ * Lembrete honesto: o domínio é público (aparece nos logs de Certificate
+ * Transparency ao emitir o TLS), então "aberto" = qualquer um que ache a URL.
+ */
+function eq(a: string, b: string): boolean {
+  const ab = Buffer.from(a, 'utf8');
+  const bb = Buffer.from(b, 'utf8');
+  return ab.length === bb.length && timingSafeEqual(ab, bb);
+}
+
+function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  if (req.path === '/health' || req.path.startsWith('/webhook/')) return next();
+  const cfg = loadConfig();
+  const user = cfg.DASHBOARD_USER;
+  const pass = cfg.DASHBOARD_PASSWORD;
+  if (!user || !pass) return next(); // sem credencial configurada = painel aberto
+  const hdr = req.headers.authorization ?? '';
+  if (hdr.startsWith('Basic ')) {
+    const decoded = Buffer.from(hdr.slice(6), 'base64').toString('utf8');
+    const sep = decoded.indexOf(':');
+    const u = sep === -1 ? decoded : decoded.slice(0, sep);
+    const p = sep === -1 ? '' : decoded.slice(sep + 1);
+    if (eq(u, user) && eq(p, pass)) return next();
+  }
+  res.set('WWW-Authenticate', 'Basic realm="Motor de Afiliados", charset="UTF-8"');
+  res.status(401).send('Acesso restrito.');
+}
+
+app.use(requireAuth);
 
 // Painel de controle (Módulo 4) servido estático pela própria API.
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -285,8 +320,14 @@ app.put('/api/settings', async (req: Request, res: Response) => {
 
 export function startApi(): void {
   const cfg = loadConfig();
+  const protegido = Boolean(cfg.DASHBOARD_USER && cfg.DASHBOARD_PASSWORD);
   const server = app.listen(cfg.API_PORT, () => {
-    log.info('API ouvindo', { port: cfg.API_PORT });
+    log.info('API ouvindo', { port: cfg.API_PORT, painelProtegido: protegido });
+    if (!protegido) {
+      log.warn(
+        'painel SEM senha (aberto a quem souber a URL) — defina DASHBOARD_USER e DASHBOARD_PASSWORD para exigir login',
+      );
+    }
   });
 
   // WebSocket para o dashboard (broadcast simples de heartbeat/eventos).
