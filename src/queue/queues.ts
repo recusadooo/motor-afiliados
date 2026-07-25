@@ -9,6 +9,8 @@ export const QUEUE_CAPTURE = 'capture';
 export interface ProcessJobData {
   offer: NormalizedOffer;
   rawCaptureId: string | null;
+  /** keyword que trouxe a oferta — vai para `offers.keyword` (filtro do painel) */
+  keyword?: string | null;
 }
 
 export interface DripJobData {

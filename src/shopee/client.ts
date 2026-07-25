@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { loadConfig } from '../config';
 import { log } from '../logger';
 import { withRetry, HttpError } from '../resilience/retry';
+import { reservarVaga } from './throttle';
 
 /**
  * Cliente da Shopee Affiliate Open API (GraphQL).
@@ -49,16 +50,27 @@ export async function shopeeGraphQL<T>(
   const cfg = loadConfig();
   // Serializa UMA vez; a MESMA string vai para a assinatura e para o body.
   const payload = JSON.stringify(variables ? { query, variables } : { query });
-  const ts = Math.floor(Date.now() / 1000);
-  const signature = sign(cfg.SHOPEE_APP_ID, ts, payload, cfg.SHOPEE_APP_SECRET);
-  const authorization = `SHA256 Credential=${cfg.SHOPEE_APP_ID}, Timestamp=${ts}, Signature=${signature}`;
 
   return withRetry(
     async () => {
+      // Ponto único de controle de taxa: NENHUMA chamada à Shopee sai daqui sem
+      // passar pelo freio (inclui as retentativas — de propósito).
+      await reservarVaga();
+
+      // ASSINATURA DENTRO da tentativa, DEPOIS de esperar a vaga.
+      // Se fosse calculada fora, uma tentativa que esperou no backoff (até 60s)
+      // ou na fila do freio apresentaria timestamp velho -> risco de 10020
+      // (assinatura inválida). Assinar aqui é o que torna a espera segura.
+      const ts = Math.floor(Date.now() / 1000);
+      const signature = sign(cfg.SHOPEE_APP_ID, ts, payload, cfg.SHOPEE_APP_SECRET);
+      const authorization = `SHA256 Credential=${cfg.SHOPEE_APP_ID}, Timestamp=${ts}, Signature=${signature}`;
+
       const res = await fetch(cfg.SHOPEE_API_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: authorization },
         body: payload,
+        // Sem timeout, uma conexão pendurada trava o ciclo de captura inteiro.
+        signal: AbortSignal.timeout(cfg.HTTP_TIMEOUT_MS),
       });
 
       const text = await res.text();
@@ -77,8 +89,14 @@ export async function shopeeGraphQL<T>(
         const first = json.errors[0]!;
         const code = first.extensions?.code != null ? String(first.extensions.code) : undefined;
         if (code === ERR.RATE_LIMIT) {
-          // Trata como 429 para o backoff do withRetry cuidar.
-          throw new HttpError(429, `Shopee rate limit (10030): ${first.message}`);
+          // NÃO retentar: com freio de taxa próprio, insistir num rate limit é
+          // exatamente o que transforma um aviso em bloqueio. Erra alto para o
+          // ciclo parar e o motivo aparecer no painel.
+          throw new ShopeeApiError(
+            `Shopee 10030: rate limit atingido — o ciclo foi interrompido de propósito. ${first.message}`,
+            code,
+            json.errors,
+          );
         }
         if (code === ERR.NO_API_ACCESS) {
           throw new ShopeeApiError(

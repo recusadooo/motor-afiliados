@@ -5,7 +5,7 @@ import { log } from './logger';
 import { startProcessWorker } from './queue/processWorker';
 import { startDripWorker, ensureDripJobs } from './queue/scheduler';
 import { getCaptureQueue, QUEUE_CAPTURE } from './queue/queues';
-import { runCapture } from './capture/shopeeFeed';
+import { runCaptureExclusivo } from './capture/shopeeFeed';
 import { migrate } from './migrate';
 
 /**
@@ -29,7 +29,7 @@ async function main(): Promise<void> {
 
   const captureWorker = new Worker(
     QUEUE_CAPTURE,
-    async () => runCapture(false),
+    async () => runCaptureExclusivo(false, 'cron'),
     { connection: makeRedis(), concurrency: 1 },
   );
   captureWorker.on('failed', (_job, err) => log.error('captura falhou', { err: err?.message }));

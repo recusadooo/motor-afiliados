@@ -74,6 +74,16 @@ const schema = z.object({
   SHOPEE_APP_ID: z.string().min(1, 'SHOPEE_APP_ID ausente'),
   SHOPEE_APP_SECRET: z.string().min(1, 'SHOPEE_APP_SECRET ausente'),
   SHOPEE_API_ENDPOINT: url('https://open-api.affiliate.shopee.com.br/graphql'),
+  // ---- Freio de taxa da Shopee (ver src/shopee/throttle.ts) ----
+  // A conta de afiliado é o ativo mais frágil do projeto e o critério de "uso
+  // anormal" não é público -> tetos conservadores, por escolha, não por
+  // exigência documentada. 0 desliga cada trava.
+  SHOPEE_MIN_INTERVAL_MS: int(1200), // ~50 req/min no máximo teórico
+  SHOPEE_MAX_PER_MIN: int(20),
+  SHOPEE_MAX_PER_DAY: int(1500),
+  // Timeout de toda chamada HTTP externa (Shopee/OpenAI). Sem isso, uma conexão
+  // pendurada trava o ciclo de captura e os jobs acumulam para disparar juntos.
+  HTTP_TIMEOUT_MS: int(20000),
 
   // ---- Infra ----
   // Dois caminhos: DATABASE_URL pronta OU as partes soltas (recomendado).
@@ -120,7 +130,28 @@ const schema = z.object({
       'maionese,ketchup,mostarda,azeite,cafe,achocolatado,chocolate,macarrao,tempero,oleo de cozinha,leite condensado',
   ),
   CAPTURE_SORT_TYPE: int(2), // 2 = mais vendidos
-  CAPTURE_LIMIT: int(30),
+  // Quantas a Shopee devolve por keyword (matéria-prima do ranking).
+  CAPTURE_LIMIT: int(12),
+  // Quantas SOBREVIVEM por keyword depois de filtrar e ranquear. 1 = nunca
+  // "30 fones iguais"; a diversidade vem de rodar keywords diferentes por ciclo.
+  CAPTURE_TOP_PER_KEYWORD: int(1),
+  // Teto global por ciclo. Alvo do dono: 9-10 por ciclo de ~30-45min.
+  CAPTURE_MAX_PER_CYCLE: int(10),
+  // Rotação: usa só um pedaço da lista de keywords por ciclo e avança na próxima.
+  // 16 de 48 => cobre a lista toda em 3 ciclos (~1h30), com 16 chamadas de API
+  // por ciclo em vez de 48. Funil largo (o dono quer ver "100 -> 9 aprovadas"),
+  // mas sem estourar o teto diário de chamadas do freio da Shopee.
+  CAPTURE_KEYWORDS_PER_CYCLE: int(16),
+  // Trava de segurança: se a fila de aprovadas ainda não enviadas já passou
+  // disso, o ciclo é PULADO. É o que garante que a fila nunca explode, qualquer
+  // que seja a cadência (o gotejamento posta ~2-3/h; capturar mais é acumular).
+  CAPTURE_BACKLOG_MAX: int(30),
+  // Prova social mínima (quando a Shopee informa): produto sem venda/nota é aposta.
+  CAPTURE_MIN_SALES: int(20),
+  CAPTURE_MIN_RATING: num(4),
+  // Quase-duplicata: mesma assinatura de título = mesmo produto com outro nome.
+  // Mantém só a melhor de cada assinatura dentro do ciclo.
+  CAPTURE_DEDUP_SIMILAR: bool(true),
   CAPTURE_MIN_COMMISSION: num(0), // decimal (0.05 = 5%); 0 = sem mínimo
   CAPTURE_CRON: str('*/30 * * * *'), // a cada 30 min
   // Piso de preço: desligado por padrão (0) — o nicho inclui comida/condimento,

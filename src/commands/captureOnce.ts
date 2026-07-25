@@ -1,5 +1,5 @@
 /* eslint-disable no-console */
-import { runCapture } from '../capture/shopeeFeed';
+import { runCaptureExclusivo } from '../capture/shopeeFeed';
 import { closePool } from '../db';
 import { closeRedis } from '../redis';
 
@@ -10,7 +10,7 @@ import { closeRedis } from '../redis';
  */
 async function main(): Promise<void> {
   console.log('Rodando um ciclo de captura (inline)...');
-  const stats = await runCapture(true);
+  const stats = await runCaptureExclusivo(true, 'manual');
   console.log('Resultado:', stats);
 }
 

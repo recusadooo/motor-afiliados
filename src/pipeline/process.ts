@@ -31,6 +31,7 @@ export type ProcessOutcome =
 export async function processOffer(
   offer: NormalizedOffer,
   rawCaptureId: string | null,
+  keyword: string | null = null,
 ): Promise<ProcessOutcome> {
   const cfg = loadConfig();
   const correlationId = randomUUID();
@@ -71,6 +72,7 @@ export async function processOffer(
       status: 'rejected',
       rejectReason: reason ?? 'rejeitada',
       disc,
+      keyword,
     });
     l.info('oferta rejeitada', { reason });
     return { status: 'rejected', reason: reason ?? 'rejeitada' };
@@ -103,6 +105,7 @@ export async function processOffer(
     status,
     rejectReason: null,
     disc,
+    keyword,
   });
 
   if (!offerId) return { status: 'duplicate' };
@@ -121,6 +124,7 @@ interface InsertParams {
   status: string;
   rejectReason: string | null;
   disc: { reference: number | null; realSavings: number | null; realDiscountPct: number | null };
+  keyword: string | null;
 }
 
 async function insertOffer(offer: NormalizedOffer, p: InsertParams): Promise<string | null> {
@@ -129,8 +133,10 @@ async function insertOffer(offer: NormalizedOffer, p: InsertParams): Promise<str
        (raw_capture_id, platform, product_id, shop_id, title, price, original_price,
         discount_pct, savings_brl, commission_rate, category, affiliate_url, image_url,
         rewritten_copy, copy_placeholders, ai_fallback, is_priority, priority, dedup_key,
-        status, reject_reason)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+        status, reject_reason, sales, rating_star, advertised_discount_pct, keyword,
+        commission_brl)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
+             $22,$23,$24,$25,$26)
      ON CONFLICT (dedup_key) DO NOTHING
      RETURNING id`,
     [
@@ -155,6 +161,11 @@ async function insertOffer(offer: NormalizedOffer, p: InsertParams): Promise<str
       p.dkey,
       p.status,
       p.rejectReason,
+      offer.sales,
+      offer.ratingStar,
+      offer.discountPct, // desconto ANUNCIADO (o real vai em discount_pct)
+      p.keyword,
+      offer.price != null && offer.commissionRate != null ? offer.price * offer.commissionRate : null,
     ],
   );
   return row?.id ?? null;

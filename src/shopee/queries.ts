@@ -69,6 +69,16 @@ export async function shopeeOfferV2(
 }
 
 /**
+ * Erro de SCHEMA GraphQL (nome de tipo/campo errado) — o único caso em que vale
+ * tentar a forma inline. Rede, timeout e rate limit NÃO entram aqui.
+ */
+function pareceErroDeSchema(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+  if (/rate limit|10030|timeout|abort|socket|econn|network|fetch failed/.test(msg)) return false;
+  return /unknown type|cannot query|unknown argument|variable|syntax|graphql|validation|400/.test(msg);
+}
+
+/**
  * Gera link de afiliado a partir de qualquer URL Shopee.
  * Mutation confirmada: generateShortLink(input: { originUrl, subIds }) { shortLink }.
  * subIds: máximo de 5 (aparecem como utmContent no relatório de conversão).
@@ -84,6 +94,10 @@ export async function generateShortLink(originUrl: string, subIds: string[] = []
   } catch (err) {
     // O nome exato do tipo do input ($ShopeeGenerateShortLinkInput) ainda não foi
     // confirmado por introspection. Fallback: tentar inline sem variável tipada.
+    // SÓ para erro de SCHEMA. Antes, qualquer falha (rede, 429, indisponibilidade)
+    // disparava a segunda cadeia de retentativas — 8 requisições por link, e
+    // justamente quando a API já estava reclamando de volume.
+    if (!pareceErroDeSchema(err)) throw err;
     const inlineSubIds = JSON.stringify(subIds.slice(0, 5));
     const inline = `mutation {
       generateShortLink(input: { originUrl: ${JSON.stringify(originUrl)}, subIds: ${inlineSubIds} }) { shortLink }

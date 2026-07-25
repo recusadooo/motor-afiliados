@@ -169,3 +169,34 @@ CREATE TABLE IF NOT EXISTS settings (
   value      TEXT,
   updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- ============================================================
+-- Evoluções (idempotentes — o migrate reaplica este arquivo a cada boot).
+-- CREATE TABLE IF NOT EXISTS não adiciona coluna em tabela que já existe,
+-- por isso as colunas novas entram como ALTER ... IF NOT EXISTS.
+-- ============================================================
+
+-- Contexto da oferta para o painel poder filtrar e para o dono entender o feed.
+ALTER TABLE offers ADD COLUMN IF NOT EXISTS sales INT;
+ALTER TABLE offers ADD COLUMN IF NOT EXISTS rating_star NUMERIC(3,2);
+-- desconto ANUNCIADO pela Shopee (inflado); discount_pct guarda o REAL (medido)
+ALTER TABLE offers ADD COLUMN IF NOT EXISTS advertised_discount_pct NUMERIC(5,2);
+-- palavra-chave que trouxe a oferta (permite filtrar o feed por nicho)
+ALTER TABLE offers ADD COLUMN IF NOT EXISTS keyword TEXT;
+-- ganho estimado por venda (preço x comissão) — evita recalcular no front
+ALTER TABLE offers ADD COLUMN IF NOT EXISTS commission_brl NUMERIC(12,2);
+
+CREATE INDEX IF NOT EXISTS idx_offers_status_created ON offers (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_offers_keyword ON offers (keyword);
+CREATE INDEX IF NOT EXISTS idx_price_history_prod ON price_history (product_id, shop_id, captured_at DESC);
+
+-- Histórico de cada ciclo de captura: quantas vieram, quantas foram cortadas e
+-- por quê. É o que responde "por que o feed está assim" no painel.
+CREATE TABLE IF NOT EXISTS capture_runs (
+  id          BIGSERIAL PRIMARY KEY,
+  started_at  TIMESTAMPTZ DEFAULT now(),
+  finished_at TIMESTAMPTZ,
+  trigger     TEXT DEFAULT 'cron',   -- cron | manual
+  stats       JSONB,
+  error       TEXT
+);

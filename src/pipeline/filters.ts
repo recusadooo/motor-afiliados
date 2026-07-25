@@ -86,6 +86,48 @@ export function rejectByRelevance(offer: NormalizedOffer, keyword: string): Reje
   return { rejected: false };
 }
 
+/**
+ * Prova social: produto com pouca venda ou nota baixa é aposta, não oferta.
+ * Só corta quando a Shopee INFORMA o dado (null = sem informação = não pune).
+ */
+export function rejectBySocialProof(
+  offer: NormalizedOffer,
+  minSales: number,
+  minRating: number,
+): RejectResult {
+  if (minSales > 0 && offer.sales != null && offer.sales < minSales) {
+    return { rejected: true, reason: `poucas vendas (${offer.sales} < ${minSales})` };
+  }
+  if (minRating > 0 && offer.ratingStar != null && offer.ratingStar > 0 && offer.ratingStar < minRating) {
+    return { rejected: true, reason: `nota baixa (${offer.ratingStar} < ${minRating})` };
+  }
+  return { rejected: false };
+}
+
+/**
+ * Assinatura de quase-duplicata: 4 primeiros tokens relevantes do título.
+ * "E6S Fones De Ouvido TWS Sem Fio" e "Pro 4 Fones De Ouvido TWS Sem Fio" são
+ * produtos diferentes, mas para um grupo de ofertas é a MESMA coisa repetida —
+ * a assinatura junta os dois e o ranking escolhe um.
+ */
+export function similarityKey(title: string): string {
+  const tokens = normalizeText(title)
+    .split(' ')
+    .filter((t) => t.length >= 3 && !STOPWORDS.has(t) && !/^\d+$/.test(t));
+  return tokens.slice(0, 4).join(' ');
+}
+
+/**
+ * Nota de qualidade da oferta — decide QUAL sobrevive quando há muitas parecidas.
+ * Peso maior no ganho por venda (é o objetivo do negócio), depois prova social.
+ */
+export function offerScore(offer: NormalizedOffer): number {
+  const ganho = (offer.price ?? 0) * (offer.commissionRate ?? 0);
+  const nota = offer.ratingStar ?? 0;
+  const vendas = offer.sales ?? 0;
+  return ganho * 10 + nota * 2 + Math.log10(vendas + 1) * 3;
+}
+
 /** Acessório/bugiganga: casa com a keyword mas não é o produto que se quer. */
 export function rejectByExcludedWord(offer: NormalizedOffer, cfg: Config): RejectResult {
   const hay = normalizeText(offer.title);

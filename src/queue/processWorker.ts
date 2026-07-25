@@ -10,8 +10,8 @@ export function startProcessWorker(): Worker<ProcessJobData> {
   const worker = new Worker<ProcessJobData>(
     QUEUE_PROCESS,
     async (job) => {
-      const { offer, rawCaptureId } = job.data;
-      const outcome = await processOffer(offer, rawCaptureId);
+      const { offer, rawCaptureId, keyword } = job.data;
+      const outcome = await processOffer(offer, rawCaptureId, keyword ?? null);
       // Oferta prioritária recém-aprovada -> antecipa o disparo (fura-fila).
       if (outcome.status === 'created' && outcome.isPriority) {
         await nudgePriority().catch((e) => log.warn('nudge falhou', { err: String(e) }));

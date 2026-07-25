@@ -43,6 +43,8 @@ async function postJson(path: string, body: unknown): Promise<unknown> {
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(body),
+    // Sem timeout, uma conexão pendurada segura o job e a fila acumula.
+    signal: AbortSignal.timeout(cfg.HTTP_TIMEOUT_MS),
   });
   const text = await res.text();
   let json: unknown;
