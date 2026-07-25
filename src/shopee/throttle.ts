@@ -21,6 +21,7 @@ import { log } from '../logger';
 let cadeia: Promise<void> = Promise.resolve();
 let ultimoEnvio = 0;
 const janelaMinuto: number[] = [];
+const janelaHora: number[] = [];
 let diaAtual = '';
 let usadoNoDia = 0;
 
@@ -29,12 +30,18 @@ function hojeUTC(): string {
 }
 
 /** Uso atual — exposto para o painel/diagnóstico. */
-export function shopeeUsage(): { dia: string; usadoNoDia: number; ultimoMinuto: number } {
+export function shopeeUsage(): {
+  dia: string;
+  usadoNoDia: number;
+  ultimoMinuto: number;
+  ultimaHora: number;
+} {
   const agora = Date.now();
   return {
     dia: diaAtual,
     usadoNoDia,
     ultimoMinuto: janelaMinuto.filter((t) => agora - t < 60_000).length,
+    ultimaHora: janelaHora.filter((t) => agora - t < 3_600_000).length,
   };
 }
 
@@ -63,6 +70,21 @@ export async function reservarVaga(): Promise<void> {
       );
     }
 
+    // teto por HORA — é a janela oficial da Shopee (2000/h no painel pt-BR).
+    if (cfg.SHOPEE_MAX_PER_HOUR > 0) {
+      for (;;) {
+        const agora = Date.now();
+        while (janelaHora.length && agora - janelaHora[0]! >= 3_600_000) janelaHora.shift();
+        if (janelaHora.length < cfg.SHOPEE_MAX_PER_HOUR) break;
+        const esperar = 3_600_000 - (agora - janelaHora[0]!) + 100;
+        log.warn('teto por HORA da Shopee atingido — aguardando a janela abrir', {
+          ms: esperar,
+          teto: cfg.SHOPEE_MAX_PER_HOUR,
+        });
+        await dorme(Math.min(esperar, 60_000));
+      }
+    }
+
     // teto por minuto — espera a janela abrir
     if (cfg.SHOPEE_MAX_PER_MIN > 0) {
       for (;;) {
@@ -83,6 +105,7 @@ export async function reservarVaga(): Promise<void> {
 
     ultimoEnvio = Date.now();
     janelaMinuto.push(ultimoEnvio);
+    janelaHora.push(ultimoEnvio);
     usadoNoDia += 1;
   } finally {
     liberar();
@@ -94,6 +117,7 @@ export function __resetThrottle(): void {
   cadeia = Promise.resolve();
   ultimoEnvio = 0;
   janelaMinuto.length = 0;
+  janelaHora.length = 0;
   diaAtual = '';
   usadoNoDia = 0;
 }

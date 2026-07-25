@@ -80,7 +80,11 @@ const schema = z.object({
   // exigência documentada. 0 desliga cada trava.
   SHOPEE_MIN_INTERVAL_MS: int(1200), // ~50 req/min no máximo teórico
   SHOPEE_MAX_PER_MIN: int(20),
-  SHOPEE_MAX_PER_DAY: int(1500),
+  // A janela OFICIAL da Shopee é HORÁRIA: o painel de afiliado em pt-BR informa
+  // 2000/hora (o master em inglês diz 8000 — tradução defasada). 300/h é 15% do
+  // limite e ~6x o uso real (~52/h), então o freio bate cedo se algo escapar.
+  SHOPEE_MAX_PER_HOUR: int(300),
+  SHOPEE_MAX_PER_DAY: int(2500),
   // Timeout de toda chamada HTTP externa (Shopee/OpenAI). Sem isso, uma conexão
   // pendurada trava o ciclo de captura e os jobs acumulam para disparar juntos.
   HTTP_TIMEOUT_MS: int(20000),
@@ -193,6 +197,9 @@ const schema = z.object({
   // liga HTTP Basic no painel e nas rotas /api sem mexer em código.
   DASHBOARD_USER: optStr(),
   DASHBOARD_PASSWORD: optStr(),
+  // ---- Guard rails da API pública ----
+  API_RATE_PER_MIN: int(120), // por IP; 0 desliga
+  LOGIN_MAX_ATTEMPTS: int(8), // tentativas erradas por IP em 15 min -> bloqueia
 });
 
 export type Config = z.infer<typeof schema>;

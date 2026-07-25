@@ -20,6 +20,8 @@ import { reservarVaga } from './throttle';
 const ERR = {
   INVALID_SIGNATURE: '10020',
   RATE_LIMIT: '10030',
+  ACCOUNT_FROZEN: '10033',
+  BLACKLISTED: '10034',
   NO_API_ACCESS: '10035',
 } as const;
 
@@ -31,6 +33,19 @@ export class ShopeeApiError extends Error {
   ) {
     super(message);
     this.name = 'ShopeeApiError';
+  }
+}
+
+/**
+ * Erro que significa "a conta de afiliado está em risco" (congelada ou em
+ * blacklist). É o pior cenário do projeto — a conta é o único ponto de
+ * monetização. Tem classe própria para aparecer como alerta, não como falha
+ * genérica de API.
+ */
+export class ShopeeContaEmRiscoError extends ShopeeApiError {
+  constructor(message: string, code: string, errors?: unknown) {
+    super(message, code, errors);
+    this.name = 'ShopeeContaEmRiscoError';
   }
 }
 
@@ -94,6 +109,16 @@ export async function shopeeGraphQL<T>(
           // ciclo parar e o motivo aparecer no painel.
           throw new ShopeeApiError(
             `Shopee 10030: rate limit atingido — o ciclo foi interrompido de propósito. ${first.message}`,
+            code,
+            json.errors,
+          );
+        }
+        if (code === ERR.ACCOUNT_FROZEN || code === ERR.BLACKLISTED) {
+          const oque =
+            code === ERR.ACCOUNT_FROZEN ? 'CONTA CONGELADA' : 'AFILIADO EM BLACKLIST';
+          log.error(`SHOPEE: ${oque} — PARE E VERIFIQUE A CONTA`, { code, msg: first.message });
+          throw new ShopeeContaEmRiscoError(
+            `Shopee ${code}: ${oque}. O motor parou de propósito — entre na conta de afiliado e verifique antes de continuar. (${first.message})`,
             code,
             json.errors,
           );

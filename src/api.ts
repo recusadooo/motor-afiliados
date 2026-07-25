@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { timingSafeEqual } from 'node:crypto';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { WebSocketServer } from 'ws';
 import { loadConfig } from './config';
@@ -11,6 +10,12 @@ import { removeDripJob } from './queue/scheduler';
 import { getEvolution, GROUPS_INSTANCE_SETTINGS } from './whatsapp/evolution';
 import { settingsStatus, setSetting, SETTING_KEYS } from './settings';
 import { runCaptureExclusivo, capturaEmAndamento } from './capture/shopeeFeed';
+import {
+  COOKIE, cabecalhosSeguranca, limiteApi, autenticar, criarSessao, sessaoValida, lerCookie,
+  garantirSenha, trocarSenha, usuarioPainel, tokenWebhook, ipDe, loginBloqueado,
+  registrarTentativaFalha, limparTentativas,
+} from './security';
+import { paginaLogin } from './loginPage';
 
 /**
  * API do backend (roda no VPS). Serve:
@@ -32,31 +37,101 @@ app.use(express.json({ limit: '2mb' }));
  * Lembrete honesto: o domínio é público (aparece nos logs de Certificate
  * Transparency ao emitir o TLS), então "aberto" = qualquer um que ache a URL.
  */
-function eq(a: string, b: string): boolean {
-  const ab = Buffer.from(a, 'utf8');
-  const bb = Buffer.from(b, 'utf8');
-  return ab.length === bb.length && timingSafeEqual(ab, bb);
+// Atrás do Traefik: o IP real vem no X-Forwarded-For.
+app.set('trust proxy', true);
+app.use(cabecalhosSeguranca);
+
+/** Rotas que NÃO exigem sessão. O webhook tem o próprio segredo (na URL). */
+function livre(caminho: string): boolean {
+  return (
+    caminho === '/health' ||
+    caminho === '/login' ||
+    caminho === '/api/login' ||
+    caminho === '/api/logout' ||
+    caminho.startsWith('/webhook/')
+  );
 }
 
-function requireAuth(req: Request, res: Response, next: NextFunction): void {
-  if (req.path === '/health' || req.path.startsWith('/webhook/')) return next();
-  const cfg = loadConfig();
-  const user = cfg.DASHBOARD_USER;
-  const pass = cfg.DASHBOARD_PASSWORD;
-  if (!user || !pass) return next(); // sem credencial configurada = painel aberto
+/**
+ * Porteiro do painel. Aceita sessão (cookie assinado) OU Basic auth (para curl).
+ * Navegador sem sessão é levado ao /login; chamada de API recebe 401 em JSON.
+ */
+async function porteiro(req: Request, res: Response, next: NextFunction): Promise<void> {
+  if (livre(req.path)) return next();
+
+  if (await sessaoValida(lerCookie(req, COOKIE))) return next();
+
   const hdr = req.headers.authorization ?? '';
   if (hdr.startsWith('Basic ')) {
-    const decoded = Buffer.from(hdr.slice(6), 'base64').toString('utf8');
-    const sep = decoded.indexOf(':');
-    const u = sep === -1 ? decoded : decoded.slice(0, sep);
-    const p = sep === -1 ? '' : decoded.slice(sep + 1);
-    if (eq(u, user) && eq(p, pass)) return next();
+    const decodificado = Buffer.from(hdr.slice(6), 'base64').toString('utf8');
+    const sep = decodificado.indexOf(':');
+    const u = sep === -1 ? decodificado : decodificado.slice(0, sep);
+    const p = sep === -1 ? '' : decodificado.slice(sep + 1);
+    if (await autenticar(u, p)) return next();
+    log.warn('basic auth recusado', { ip: ipDe(req), path: req.path });
   }
-  res.set('WWW-Authenticate', 'Basic realm="Motor de Afiliados", charset="UTF-8"');
-  res.status(401).send('Acesso restrito.');
+
+  const querHtml = (req.headers.accept ?? '').includes('text/html');
+  if (querHtml) {
+    res.redirect(302, '/login');
+    return;
+  }
+  res.status(401).json({ error: 'não autenticado — faça login em /login' });
 }
 
-app.use(requireAuth);
+app.use(wrap(porteiro));
+app.use('/api', limiteApi);
+
+// ---- login ----
+app.get('/login', (_req: Request, res: Response) => {
+  res.type('html').send(paginaLogin());
+});
+
+app.post('/api/login', wrap(async (req: Request, res: Response) => {
+  const ip = ipDe(req);
+  const bloqueio = loginBloqueado(ip);
+  if (bloqueio > 0) {
+    res.status(429).json({ error: `muitas tentativas — tente de novo em ${Math.ceil(bloqueio / 60)} min` });
+    return;
+  }
+  const usuario = String(req.body?.usuario ?? '').trim();
+  const senha = String(req.body?.senha ?? '');
+  if (!(await autenticar(usuario, senha))) {
+    registrarTentativaFalha(ip, loadConfig().LOGIN_MAX_ATTEMPTS);
+    log.warn('login falhou', { ip, usuario });
+    res.status(401).json({ error: 'usuário ou senha incorretos' });
+    return;
+  }
+  limparTentativas(ip);
+  const token = await criarSessao(usuario);
+  res.cookie?.(COOKIE, token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    maxAge: 30 * 86400_000,
+    path: '/',
+  });
+  log.info('login ok', { ip, usuario });
+  res.json({ ok: true });
+}));
+
+app.post('/api/logout', (_req: Request, res: Response) => {
+  res.setHeader('Set-Cookie', `${COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`);
+  res.json({ ok: true });
+});
+
+// Trocar usuário/senha do painel (invalida as sessões antigas).
+app.post('/api/access', wrap(async (req: Request, res: Response) => {
+  const senha = String(req.body?.senha ?? '');
+  const usuario = req.body?.usuario ? String(req.body.usuario) : undefined;
+  await trocarSenha(senha, usuario);
+  log.warn('senha do painel alterada', { ip: ipDe(req) });
+  res.json({ ok: true, usuario: await usuarioPainel() });
+}));
+
+app.get('/api/access', wrap(async (_req: Request, res: Response) => {
+  res.json({ usuario: await usuarioPainel(), webhookUrl: await urlWebhook() });
+}));
 
 // Painel de controle (Módulo 4) servido estático pela própria API.
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -82,14 +157,36 @@ app.get('/health', (_req: Request, res: Response) => {
   res.json({ ok: true, ts: new Date().toISOString() });
 });
 
-// ---- Webhook da Evolution (mensagens de grupos -> enriquecimento) ----
-app.post('/webhook/evolution', wrap(async (req: Request, res: Response) => {
-  res.status(200).json({ ok: true }); // responde rápido; processa depois
+/** URL do webhook COM o token (é o que se registra na Evolution). */
+async function urlWebhook(): Promise<string | null> {
+  const cfg = loadConfig();
+  if (!cfg.PUBLIC_APP_URL) return null;
+  return `${cfg.PUBLIC_APP_URL.replace(/\/$/, '')}/webhook/evolution/${await tokenWebhook()}`;
+}
+
+/**
+ * Webhook da Evolution. Ela não manda credencial, então o segredo vai NA URL —
+ * sem isso, qualquer um na internet poderia injetar mensagens falsas de grupo.
+ * O app registra a URL com token automaticamente ao provisionar a instância.
+ */
+app.post('/webhook/evolution/:token', wrap(async (req: Request, res: Response) => {
+  if (req.params.token !== (await tokenWebhook())) {
+    log.warn('webhook com token inválido', { ip: ipDe(req) });
+    res.status(401).json({ error: 'token inválido' });
+    return;
+  }
+  res.status(200).json({ ok: true });
   try {
     await handleEvolutionWebhook(req.body);
   } catch (err) {
     log.error('webhook falhou', { err: err instanceof Error ? err.message : String(err) });
   }
+}));
+
+// Compat: caminho antigo sem token — recusa e diz o que fazer.
+app.post('/webhook/evolution', wrap(async (_req: Request, res: Response) => {
+  log.warn('webhook chamado sem token — reconfigure a instância na aba Conexões');
+  res.status(401).json({ error: 'webhook exige token na URL — reconfigure em Conexões' });
 }));
 
 // ---- Feed de ofertas (dashboard) ----
@@ -274,11 +371,11 @@ app.post('/api/instances', wrap(async (req: Request, res: Response) => {
     steps.settings = 'falhou: ' + (err instanceof Error ? err.message : String(err));
   }
   // Webhook para o app (essencial p/ listener, inofensivo p/ poster).
-  const cfg = loadConfig();
-  if (cfg.PUBLIC_APP_URL) {
+  const url = await urlWebhook();
+  if (url) {
     try {
-      await evo.setWebhook(name, `${cfg.PUBLIC_APP_URL.replace(/\/$/, '')}/webhook/evolution`, ['MESSAGES_UPSERT']);
-      steps.webhook = 'configurado';
+      await evo.setWebhook(name, url, ['MESSAGES_UPSERT']);
+      steps.webhook = 'configurado (com token)';
     } catch (err) {
       steps.webhook = 'falhou: ' + (err instanceof Error ? err.message : String(err));
     }
@@ -468,14 +565,16 @@ export function startApi(): void {
     log.error('uncaughtException — reiniciando', { err: err.message });
     process.exit(1);
   });
-  const protegido = Boolean(cfg.DASHBOARD_USER && cfg.DASHBOARD_PASSWORD);
+  // Garante que existe senha ANTES de servir qualquer coisa (gera na 1ª vez e
+  // mostra no log uma única vez).
+  garantirSenha().catch((err) =>
+    log.error('não conseguiu preparar a senha do painel', {
+      err: err instanceof Error ? err.message : String(err),
+    }),
+  );
+  const protegido = true;
   const server = app.listen(cfg.API_PORT, () => {
     log.info('API ouvindo', { port: cfg.API_PORT, painelProtegido: protegido });
-    if (!protegido) {
-      log.warn(
-        'painel SEM senha (aberto a quem souber a URL) — defina DASHBOARD_USER e DASHBOARD_PASSWORD para exigir login',
-      );
-    }
   });
 
   // WebSocket para o dashboard (broadcast simples de heartbeat/eventos).

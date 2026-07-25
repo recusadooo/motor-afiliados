@@ -163,6 +163,7 @@
   <span class="direita">
     <button class="btn pequeno" id="btn-buscar" onclick="buscarAgora()">buscar ofertas agora</button>
     <button class="btn pequeno fantasma" onclick="recarregar()">↻ atualizar</button>
+    <button class="btn pequeno fantasma" onclick="sair()">sair</button>
   </span>
 </header>
 
@@ -303,6 +304,18 @@
       <input id="evo-key" type="password" placeholder="fica só no servidor" />
       <div class="acoes"><button class="btn" onclick="salvarEvolution()">Salvar Evolution</button></div>
     </div>
+    <div class="card">
+      <h3>Acesso ao painel</h3>
+      <div id="acesso-status" class="nota"></div>
+      <p class="nota">Trocar a senha derruba as sessões abertas em outros dispositivos.</p>
+      <label for="ac-user">Usuário</label>
+      <input id="ac-user" placeholder="dono" />
+      <label for="ac-pass" style="margin-top:10px">Nova senha (mínimo 8 caracteres)</label>
+      <input id="ac-pass" type="password" placeholder="nova senha" />
+      <div class="acoes"><button class="btn" onclick="salvarAcesso()">Trocar acesso</button></div>
+      <p class="nota" id="ac-webhook"></p>
+    </div>
+
     <div class="card">
       <h3>Inteligência artificial (copy)</h3>
       <div id="cfg-status" class="nota"></div>
@@ -625,7 +638,28 @@ async function canalRemover(id){if(!confirm('Parar de disparar nesse grupo e rem
   await api('/api/channels/'+id,{method:'DELETE'});carregarCanais();}
 
 /* =======================  config  ======================= */
+async function sair(){await api('/api/logout',{method:'POST'});location.href='/login';}
+async function salvarAcesso(){
+  try{
+    const senha=el('ac-pass').value, usuario=el('ac-user').value.trim();
+    if(senha.length<8)return alert('a senha precisa de pelo menos 8 caracteres');
+    await api('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({senha,usuario:usuario||undefined})});
+    el('ac-pass').value='';
+    alert('acesso atualizado — você vai precisar entrar de novo');
+    location.href='/login';
+  }catch(e){alert('erro: '+e.message);}
+}
+async function carregarAcesso(){
+  const a=await api('/api/access');
+  el('acesso-status').innerHTML='usuário atual: <b>'+esc(a.usuario)+'</b>';
+  el('ac-user').value=a.usuario||'';
+  el('ac-webhook').innerHTML=a.webhookUrl
+    ?'webhook do listener (já inclui o token secreto):<br><span class="mono" style="font-size:11px;word-break:break-all">'+esc(a.webhookUrl)+'</span>'
+    :'defina PUBLIC_APP_URL para o app poder registrar o webhook.';
+}
 async function carregarConfig(){
+  await carregarAcesso();
   const s=await api('/api/settings');
   el('cfg-status').innerHTML=(s.openai_api_key_set?'<span class="ok">chave da OpenAI definida</span>'
     :'<span class="warn">sem chave — a copy usa o texto do app</span>')+
