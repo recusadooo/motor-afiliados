@@ -29,7 +29,7 @@ Portainer (ambiente **Swarm**) → **Stacks → Add stack**:
 ## Passo 3 — Variáveis (aba Environment variables)
 | Nome | Valor |
 |---|---|
-| `POSTGRES_PASSWORD` | senha que você inventa |
+| `POSTGRES_PASSWORD` | a senha do banco (pode ser a que já está no seu `.env` — é só esse campo, em nenhum outro lugar). Aceita `@ : / # $ %` e espaço: o app monta a URL de conexão com percent-encoding. |
 | `SHOPEE_APP_ID` | seu AppId |
 | `SHOPEE_APP_SECRET` | seu Secret |
 | `PUBLIC_APP_URL` | `https://cupom.trakads.cloud` |

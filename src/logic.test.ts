@@ -4,7 +4,8 @@ import { normalizeText, toNum } from './util';
 import { hasLiteralNumbers, copyWithoutAi } from './pipeline/copy';
 import { assessDiscount } from './pipeline/fakeDiscount';
 import { matchesKeyword, rejectByKeyword } from './pipeline/filters';
-import { DEFAULT_BLOCKED_KEYWORDS, type Config } from './config';
+import { DEFAULT_BLOCKED_KEYWORDS, databaseUrl, type Config } from './config';
+import { parse as parseConn } from 'pg-connection-string';
 import type { NormalizedOffer } from './types';
 
 test('normalizeText remove emoji/pontuação/acentos e colapsa espaços', () => {
@@ -99,4 +100,24 @@ test('copy de fallback usa desconto e economia quando o histórico confirma', ()
   const comHistorico = copyWithoutAi(o, assessDiscount(o, { count: 8, min: 200, median: 500, max: 520 }, 95));
   assert.match(comHistorico.copy.body, /60% abaixo do preço/);
   assert.match(comHistorico.copy.body, /economiza/);
+});
+
+test('databaseUrl escapa senha hostil e respeita DATABASE_URL pronta', () => {
+  const base = {
+    POSTGRES_HOST: 'postgres',
+    POSTGRES_PORT: 5432,
+    POSTGRES_USER: 'motor',
+    POSTGRES_DB: 'motor',
+  };
+  // senha com @ : / # $ espaço % — numa URI crua isso quebraria o parse
+  const senha = 'a@b:c/d#e$f g%h';
+  const url = databaseUrl({ ...base, POSTGRES_PASSWORD: senha } as unknown as Config);
+  assert.equal(url, `postgresql://motor:${encodeURIComponent(senha)}@postgres:5432/motor`);
+  // e o pg tem que decodificar de volta para a senha original
+  assert.equal(parseConn(url).password, senha);
+  // DATABASE_URL explícita tem precedência
+  assert.equal(
+    databaseUrl({ ...base, DATABASE_URL: 'postgresql://x:y@h:1/d' } as unknown as Config),
+    'postgresql://x:y@h:1/d',
+  );
 });

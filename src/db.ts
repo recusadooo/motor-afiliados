@@ -1,5 +1,5 @@
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
-import { loadConfig } from './config';
+import { loadConfig, databaseUrl } from './config';
 import { log } from './logger';
 
 /**
@@ -12,7 +12,7 @@ let pool: Pool | null = null;
 export function getPool(): Pool {
   if (pool) return pool;
   const cfg = loadConfig();
-  pool = new Pool({ connectionString: cfg.DATABASE_URL, max: 10 });
+  pool = new Pool({ connectionString: databaseUrl(cfg), max: 10 });
   pool.on('error', (err) => log.error('pg pool error', { err: String(err) }));
   return pool;
 }

@@ -76,7 +76,16 @@ const schema = z.object({
   SHOPEE_API_ENDPOINT: url('https://open-api.affiliate.shopee.com.br/graphql'),
 
   // ---- Infra ----
-  DATABASE_URL: z.string().min(1, 'DATABASE_URL ausente'),
+  // Dois caminhos: DATABASE_URL pronta OU as partes soltas (recomendado).
+  // Partes soltas existem porque senha com @ : / # ? % $ ou espaço QUEBRA a URI
+  // (postgresql://user:s@nha@host/db não parseia). Montando no código, a senha
+  // é percent-encoded e qualquer senha funciona.
+  DATABASE_URL: optStr(),
+  POSTGRES_HOST: str('postgres'),
+  POSTGRES_PORT: int(5432),
+  POSTGRES_USER: str('motor'),
+  POSTGRES_PASSWORD: optStr(),
+  POSTGRES_DB: str('motor'),
   REDIS_URL: str('redis://redis:6379'),
 
   // ---- Evolution API (WhatsApp) — já existe na VPS; aponte para ela ----
@@ -151,11 +160,23 @@ const schema = z.object({
   // ---- Senha do painel (OPCIONAL) ----
   // Vazio = painel aberto (escolha do dono, uso pessoal). Preencher os DOIS
   // liga HTTP Basic no painel e nas rotas /api sem mexer em código.
-  DASHBOARD_USER: z.string().optional(),
-  DASHBOARD_PASSWORD: z.string().optional(),
+  DASHBOARD_USER: optStr(),
+  DASHBOARD_PASSWORD: optStr(),
 });
 
 export type Config = z.infer<typeof schema>;
+
+/**
+ * URL de conexão do Postgres. Prefere DATABASE_URL; se ausente, monta a partir
+ * das partes com a senha PERCENT-ENCODED — é o que permite senha com @ : / # $
+ * (a senha do dono tem), que numa URI crua faria o parse falhar.
+ */
+export function databaseUrl(cfg: Config): string {
+  if (cfg.DATABASE_URL) return cfg.DATABASE_URL;
+  const user = encodeURIComponent(cfg.POSTGRES_USER);
+  const pass = encodeURIComponent(cfg.POSTGRES_PASSWORD ?? '');
+  return `postgresql://${user}:${pass}@${cfg.POSTGRES_HOST}:${cfg.POSTGRES_PORT}/${cfg.POSTGRES_DB}`;
+}
 
 let cached: Config | null = null;
 
@@ -174,6 +195,11 @@ export function loadConfig(): Config {
       .map((i) => `  - ${i.path.join('.') || '(raiz)'}: ${i.message}`)
       .join('\n');
     throw new Error(`Configuração inválida (verifique o .env):\n${issues}`);
+  }
+  if (!parsed.data.DATABASE_URL && !parsed.data.POSTGRES_PASSWORD) {
+    throw new Error(
+      'Configuração inválida: defina POSTGRES_PASSWORD (recomendado) ou DATABASE_URL completa.',
+    );
   }
   cached = parsed.data;
   return cached;

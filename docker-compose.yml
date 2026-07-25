@@ -35,7 +35,12 @@ services:
     command: ["node", "dist/api.js"]
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://motor:${POSTGRES_PASSWORD}@postgres:5432/motor
+      # Senha vai CRUA (não dentro de URI): o app monta a URL com
+      # percent-encoding, então senha com @ : / # $ ou espaço funciona.
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: motor
+      POSTGRES_DB: motor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       REDIS_URL: redis://redis:6379
       SHOPEE_APP_ID: ${SHOPEE_APP_ID}
       SHOPEE_APP_SECRET: ${SHOPEE_APP_SECRET}
@@ -62,7 +67,12 @@ services:
     command: ["node", "dist/worker.js"]
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://motor:${POSTGRES_PASSWORD}@postgres:5432/motor
+      # Senha vai CRUA (não dentro de URI): o app monta a URL com
+      # percent-encoding, então senha com @ : / # $ ou espaço funciona.
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: motor
+      POSTGRES_DB: motor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       REDIS_URL: redis://redis:6379
       SHOPEE_APP_ID: ${SHOPEE_APP_ID}
       SHOPEE_APP_SECRET: ${SHOPEE_APP_SECRET}
