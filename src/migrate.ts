@@ -27,3 +27,13 @@ export async function migrate(): Promise<void> {
   }
   throw new Error('não foi possível aplicar o schema (Postgres indisponível)');
 }
+
+// Permite rodar sozinho (dev local): npm run migrate
+if (require.main === module) {
+  migrate()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      log.error('migração falhou', { err: err instanceof Error ? err.message : String(err) });
+      process.exit(1);
+    });
+}

@@ -148,8 +148,8 @@ WA listener ─────┘             dedup, filtros, desconto-real, copy I
   PERGUNTAS.md         ← o que depende de você (segredos, número, keywords…)
   .env.example         ← nomes das variáveis (sem valores)
   Dockerfile           ← build multi-stage (TS -&gt; dist)
-  docker-compose.yml   ← postgres, redis, evolution, api, worker, caddy
-  Caddyfile            ← TLS automático; publica só a API
+  docker-compose.yml   ← Swarm stack: postgres, redis, api, worker (Evolution é externa)
+  DEPLOY-PORTAINER.md  ← subir no Portainer/Swarm com Traefik v3 (passo a passo)
   db/schema.sql        ← modelo de dados PostgreSQL
   src/
     config.ts          ← env validado (zod)
@@ -179,11 +179,12 @@ npm run typecheck          # valida tudo
 npm run shopee:check       # testa a Shopee Open API ao vivo (read-only)
 npm run capture:once       # 1 ciclo de captura -&gt; banco (precisa Postgres+Redis)
 </code></pre>
-<p><strong>Produção (VPS, Docker):</strong>
-1. Copie <code>app/</code> para o servidor (só a subpasta — a raiz nunca sobe).
-2. <code>cp .env.example .env</code> e preencha (<code>POSTGRES_PASSWORD</code>, <code>API_DOMAIN</code>, <code>PUBLIC_APP_URL</code>, Shopee). <code>chmod 600 .env</code>. (Evolution e OpenAI podem ir na aba Config.)
-3. Aponte o DNS do seu subdomínio para o IP do VPS (ver <code>PERGUNTAS.md</code>).
-4. <code>docker compose up -d</code> (sobe postgres, redis, api, worker, caddy — a Evolution é externa, já na sua VPS).
+<p><strong>Produção (VPS — Docker Swarm + Traefik v3, via Portainer):</strong> passo a passo completo em
+<a href="DEPLOY-PORTAINER.md"><code>DEPLOY-PORTAINER.md</code></a>. Resumo:
+1. Aponte o DNS (registro <strong>A</strong> do subdomínio → IP do VPS).
+2. GitHub Actions já publica a imagem em <code>ghcr.io/recusadooo/motor-afiliados:latest</code> a cada push.
+3. Portainer (ambiente Swarm) → <strong>Stacks → Add stack → Repository</strong> apontando pro <code>docker-compose.yml</code> deste repo.
+4. Variáveis na aba do stack: <code>POSTGRES_PASSWORD</code>, <code>SHOPEE_APP_ID</code>, <code>SHOPEE_APP_SECRET</code>, <code>API_DOMAIN</code>, <code>PUBLIC_APP_URL</code>, <code>TRAEFIK_ENTRYPOINT</code>, <code>TRAEFIK_CERTRESOLVER</code>. O Traefik roteia e emite o TLS pelos <code>deploy.labels</code>; o <code>worker</code> aplica o schema do banco no boot.
 5. Abra o painel em <code>https://SEU-DOMINIO/</code> → aba <strong>Config</strong>: cole a URL + key da sua <strong>Evolution</strong> (e a chave da OpenAI).
 6. Aba <strong>Conexões</strong>: número novo → <strong>Criar + configurar</strong> (o app cria a instância na Evolution e já a configura pra grupos + webhook) → <strong>QR</strong> → <strong>Listar grupos</strong> → <strong>Registrar canal</strong>. Número que já existe → só registrar (nome da instância + id do grupo). Sem SQL manual.</p>
 <p>O <code>worker</code> recheca canais novos a cada minuto — assim que você registra um número, o gotejamento começa.</p>

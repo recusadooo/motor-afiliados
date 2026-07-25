@@ -47,7 +47,7 @@ strong{color:var(--ink)}
 <div class="wrap"><div class="toc"><span class="toctitle">Índice</span><ul>
 <li><a href="#perguntas-setup-o-que-falta-atualizado-com-suas-respostas">PERGUNTAS / SETUP — o que falta (atualizado com suas respostas)</a><ul>
 <li><a href="#ja-resolvido-nao-precisa-fazer-nada">✅ Já resolvido (não precisa fazer nada)</a></li>
-<li><a href="#1-env-do-servidor-o-minimo-voce-preenche-eu-nunca-vejo">🔴 1. .env do servidor — o mínimo (você preenche; eu NUNCA vejo)</a></li>
+<li><a href="#1-variaveis-do-stack-o-minimo-voce-preenche-eu-nunca-vejo">🔴 1. Variáveis do stack — o mínimo (você preenche; eu NUNCA vejo)</a></li>
 <li><a href="#2-dns-para-onde-apontar-instrucoes">🟠 2. DNS — para onde apontar (instruções)</a></li>
 <li><a href="#3-conectarcadastrar-o-numero-aba-conexoes">🟡 3. Conectar/cadastrar o número (aba Conexões)</a><ul>
 <li><a href="#sobre-o-proxy-sua-pergunta-como-vou-gerar-isso">⚠️ Sobre o proxy (sua pergunta: "como vou gerar isso")</a></li>
@@ -74,24 +74,36 @@ quase tudo é feito <strong>pela interface</strong> (aba Conexões e Config), se
 <li><strong>Modelo de IA</strong>: <code>gpt-5.4-mini</code> com fallback automático — e você configura pela interface.</li>
 <li><strong>Evolution</strong>: já roda na sua VPS; o app aponta para ela (não subo outra).</li>
 </ul>
-<h2 id="1-env-do-servidor-o-minimo-voce-preenche-eu-nunca-vejo">🔴 1. <code>.env</code> do servidor — o mínimo (você preenche; eu NUNCA vejo)</h2>
-<p>Importante: você <strong>não me dá</strong> esses valores. Eles ficam no <code>.env</code> no seu servidor e o
-app lê em runtime. O mínimo é:</p>
+<h2 id="1-variaveis-do-stack-o-minimo-voce-preenche-eu-nunca-vejo">🔴 1. Variáveis do stack — o mínimo (você preenche; eu NUNCA vejo)</h2>
+<p>Deploy é <strong>Docker Swarm via Portainer</strong> (ver <code>DEPLOY-PORTAINER.md</code>), então esses valores
+vão na aba <strong>Environment variables</strong> do stack no Portainer — não num <code>.env</code> de arquivo.
+Você <strong>não me dá</strong> esses valores. O mínimo é:</p>
 <pre><code>POSTGRES_PASSWORD=...            # VOCÊ INVENTA — senha do banco NOVO que este app cria (não é um segredo que você já tem)
-API_DOMAIN=api.suamarca.com.br   # seu subdomínio (ver DNS)
-PUBLIC_APP_URL=https://api.suamarca.com.br   # p/ o app configurar o webhook do listener
-# SHOPEE_APP_ID / SHOPEE_APP_SECRET — já funcionam
+SHOPEE_APP_ID / SHOPEE_APP_SECRET  # já funcionam (testados ao vivo)
+API_DOMAIN=cupom.trakads.cloud             # seu subdomínio (ver DNS)
+PUBLIC_APP_URL=https://cupom.trakads.cloud # p/ o app configurar o webhook do listener
+TRAEFIK_ENTRYPOINT=websecure
+TRAEFIK_CERTRESOLVER=letsencryptresolver
 </code></pre>
 <p>A <strong>Evolution</strong> (URL + key global) e a <strong>OpenAI</strong> (chave + modelo) você configura pela
-aba <strong>Config</strong> do painel — não precisa no <code>.env</code>. (Se preferir, <code>EVOLUTION_API_URL/KEY</code> e
-<code>OPENAI_API_KEY</code> no <code>.env</code> também funcionam.)</p>
+aba <strong>Config</strong> do painel — não precisa aqui. (Se preferir, <code>EVOLUTION_API_URL/KEY</code> e
+<code>OPENAI_API_KEY</code> como variáveis também funcionam.)</p>
+<p><strong>Senha do painel (opcional, decisão sua = sem senha):</strong> o painel fica <strong>aberto</strong> para
+quem souber a URL. Se um dia quiser trancar, basta definir <code>DASHBOARD_USER</code> e
+<code>DASHBOARD_PASSWORD</code> no stack — o navegador passa a pedir login. Sem essas duas
+variáveis, segue aberto (o log do <code>api</code> avisa no boot).</p>
 <h2 id="2-dns-para-onde-apontar-instrucoes">🟠 2. DNS — para onde apontar (instruções)</h2>
-<p>No painel do seu provedor de domínio, crie <strong>um registro do tipo A</strong>:
+<p>No painel do seu provedor de domínio (<code>trakads.cloud</code>), crie <strong>um registro do tipo A</strong>:
 - <strong>Tipo:</strong> A (Address)
-- <strong>Nome/Host:</strong> <code>api</code> (para ficar <code>api.suamarca.com.br</code>) — ou <code>@</code> se for o domínio raiz
-- <strong>Valor/Aponta para:</strong> <strong>o IP público do seu VPS</strong> (o mesmo que você usa pra SSH — está no seu <code>.env</code>)
-- <strong>TTL:</strong> padrão (auto)</p>
-<p>Depois coloque esse domínio em <code>API_DOMAIN</code> no <code>.env</code>. O <strong>Caddy emite o HTTPS sozinho</strong> (Let's Encrypt) quando o app subir. Propagação do DNS pode levar de minutos a algumas horas. Teste com <code>https://api.suamarca.com.br/health</code> (deve responder <code>{"ok":true}</code>).</p>
+- <strong>Nome/Host:</strong> <code>cupom</code> (para ficar <code>cupom.trakads.cloud</code>) — ou <code>@</code> se for o domínio raiz
+- <strong>Valor/Aponta para:</strong> <strong>o IP público do seu VPS</strong> (o mesmo que você usa pra SSH)
+- <strong>TTL:</strong> padrão (auto)
+- <strong>Proxy (se for Cloudflare):</strong> <strong>DNS only</strong> (nuvem cinza) — com o proxy ligado, o
+  Let's Encrypt do seu Traefik pode não validar por HTTP-01.</p>
+<p>Depois coloque esse domínio em <code>API_DOMAIN</code>. O <strong>Traefik emite o HTTPS sozinho</strong>
+(resolver <code>letsencryptresolver</code>) quando o stack subir. Propagação do DNS pode levar de
+minutos a algumas horas. Teste com <code>https://cupom.trakads.cloud/health</code> (deve responder
+<code>{"ok":true}</code>).</p>
 <h2 id="3-conectarcadastrar-o-numero-aba-conexoes">🟡 3. Conectar/cadastrar o número (aba <strong>Conexões</strong>)</h2>
 <p>Depois de configurar a Evolution na aba Config, é tudo pelo painel:</p>
 <p><strong>Número NOVO (o app provisiona tudo na Evolution):</strong>

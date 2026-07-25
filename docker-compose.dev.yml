@@ -1,0 +1,34 @@
+# APENAS DESENVOLVIMENTO LOCAL (sua máquina, Docker Desktop).
+# Sobe só Postgres + Redis para testar o motor de verdade — fila, filtros,
+# painel — sem WhatsApp e sem tocar a VPS.
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#
+# Portas altas de propósito, pra não brigar com nada que já rode na máquina.
+# Produção é o docker-compose.yml (Swarm/Traefik) — este arquivo não vai pra lá.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: motor-dev-postgres
+    environment:
+      POSTGRES_USER: motor
+      POSTGRES_PASSWORD: local
+      POSTGRES_DB: motor
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - devpg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U motor -d motor"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: motor-dev-redis
+    ports:
+      - "127.0.0.1:56379:6379"
+
+volumes:
+  devpg:
