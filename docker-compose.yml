@@ -13,7 +13,13 @@ services:
       POSTGRES_DB: motor
     volumes:
       - pgdata:/var/lib/postgresql/data
-    networks: [internal]
+    networks:
+      internal:
+        # Nome único no swarm. A api está TAMBÉM na TrakAdsNet, onde já existe um
+        # serviço chamado "postgres" (do n8n/Evolution) — o nome curto é ambíguo
+        # e a api chegou a conectar no banco errado ("password authentication
+        # failed for user motor"). O alias resolve de forma inequívoca.
+        aliases: [motor-postgres]
     deploy:
       restart_policy: { condition: any }
       placement:
@@ -24,7 +30,9 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redisdata:/data
-    networks: [internal]
+    networks:
+      internal:
+        aliases: [motor-redis]  # mesmo motivo do postgres
     deploy:
       restart_policy: { condition: any }
       placement:
@@ -37,11 +45,11 @@ services:
       NODE_ENV: production
       # Senha vai CRUA (não dentro de URI): o app monta a URL com
       # percent-encoding, então senha com @ : / # $ ou espaço funciona.
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: motor-postgres
       POSTGRES_USER: motor
       POSTGRES_DB: motor
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://motor-redis:6379
       SHOPEE_APP_ID: ${SHOPEE_APP_ID}
       SHOPEE_APP_SECRET: ${SHOPEE_APP_SECRET}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
@@ -69,11 +77,11 @@ services:
       NODE_ENV: production
       # Senha vai CRUA (não dentro de URI): o app monta a URL com
       # percent-encoding, então senha com @ : / # $ ou espaço funciona.
-      POSTGRES_HOST: postgres
+      POSTGRES_HOST: motor-postgres
       POSTGRES_USER: motor
       POSTGRES_DB: motor
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://motor-redis:6379
       SHOPEE_APP_ID: ${SHOPEE_APP_ID}
       SHOPEE_APP_SECRET: ${SHOPEE_APP_SECRET}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
