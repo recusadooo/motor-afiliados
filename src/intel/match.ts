@@ -343,16 +343,32 @@ async function buscarCandidatos(post: PostRow, cfg: Config): Promise<CandidatoAv
   // `minSim` que o WHERE usa no caminho com pg_trgm (ver docstring acima:
   // os dois caminhos são de propósito equivalentes).
   const rows = await query<{ id: string; product_id: string; title_norm: string; price: string | null }>(
-    `SELECT DISTINCT ON (product_id) id, product_id, title_norm, price
-       FROM api_observations
-      WHERE platform = 'shopee'
-        AND observed_at >= $1::timestamptz - ($2 || ' hours')::interval
-        AND observed_at <= $1::timestamptz + ($2 || ' hours')::interval
-      -- Mesmo desempate do caminho com pg_trgm: anterior mais próxima e,
-      -- na falta dela, a posterior mais próxima.
-      ORDER BY product_id,
-               (observed_at <= $1::timestamptz) DESC,
-               abs(extract(epoch FROM (observed_at - $1::timestamptz))) ASC
+    `SELECT id, product_id, title_norm, price
+       FROM (
+         SELECT DISTINCT ON (product_id) id, product_id, title_norm, price, observed_at
+           FROM api_observations
+          WHERE platform = 'shopee'
+            AND observed_at >= $1::timestamptz - ($2 || ' hours')::interval
+            AND observed_at <= $1::timestamptz + ($2 || ' hours')::interval
+          -- Mesmo desempate do caminho com pg_trgm: anterior mais próxima e,
+          -- na falta dela, a posterior mais próxima.
+          ORDER BY product_id,
+                   (observed_at <= $1::timestamptz) DESC,
+                   abs(extract(epoch FROM (observed_at - $1::timestamptz))) ASC
+       ) d
+      /*
+       * O LIMIT tem que cair AQUI, não dentro do DISTINCT ON.
+       *
+       * DISTINCT ON obriga o ORDER BY a comecar por product_id, entao um
+       * LIMIT lá dentro pegava os N produtos lexicograficamente MENORES — o
+       * mesmo subconjunto para todo post, para sempre. Um produto fora dessa
+       * faixa nunca casaria, e o defeito seria invisível (o veredito sairia
+       * sem_casamento, que e uma resposta plausivel).
+       *
+       * Ordenando por PROXIMIDADE TEMPORAL do post, os N candidatos são os
+       * mais relevantes para aquele post específico.
+       */
+      ORDER BY abs(extract(epoch FROM (observed_at - $1::timestamptz))) ASC
       LIMIT ${LIMITE_CANDIDATOS_DEGRADADO}`,
     [post.posted_at, janelaHoras],
   );

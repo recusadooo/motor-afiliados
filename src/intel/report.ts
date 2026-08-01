@@ -220,16 +220,30 @@ export async function resumoDiario(dias?: number): Promise<ResumoDia[]> {
        SELECT d.dia,
               count(DISTINCT ao.product_id) AS observadas_janela
          FROM dias_serie d
+         /*
+          * Janela SIMÉTRICA, espelhando a busca de candidatos do casador.
+          *
+          * Ela era unilateral (só para trás), herdada de quando o casador
+          * também era. Depois que a busca virou simétrica — para o atraso
+          * poder ser negativo, "eles postaram antes de a gente ver" — um post
+          * do dia D passou a poder casar com observação de até D+3, que ficava
+          * FORA do denominador. Numerador podendo passar o denominador de
+          * novo, e a trava devolvendo null: o painel escreveria "sem base"
+          * sem ninguém entender por quê.
+          */
          JOIN api_observations ao
-           ON ao.observed_at >= ((d.dia + 1)::timestamp AT TIME ZONE '${TZ}')
+           ON ao.observed_at >= (d.dia::timestamp AT TIME ZONE '${TZ}')
                                  - INTERVAL '${JANELA_CASAMENTO_HORAS} hours'
           AND ao.observed_at <  ((d.dia + 1)::timestamp AT TIME ZONE '${TZ}')
+                                 + INTERVAL '${JANELA_CASAMENTO_HORAS} hours'
         GROUP BY d.dia
      ),
      posts_por_dia AS (
        SELECT (ip.posted_at AT TIME ZONE '${TZ}')::date AS dia,
               count(*) AS posts
          FROM intel_posts ip
+         -- idem: "eles postaram" exclui o nosso próprio grupo
+         JOIN intel_groups ig ON ig.id = ip.group_id AND ig.kind <> 'proprio'
          CROSS JOIN bounds b
         WHERE ip.posted_at >= b.inicio_ts
           AND ip.posted_at <  b.fim_ts
@@ -258,9 +272,22 @@ export async function resumoDiario(dias?: number): Promise<ResumoDia[]> {
                   AND (ip.posted_at AT TIME ZONE '${TZ}')::date >
                       (m.first_seen_at AT TIME ZONE '${TZ}')::date
               ) AS postados_dia_seguinte,
-              count(*) FILTER (WHERE m.verdict = 'casado' AND ao.would_pass = true) AS would_pass_casados
+              -- COALESCE com a fotografia PRIMEIRO: intel_matches.obs_* é o
+              -- estado congelado no momento do casamento e sobrevive à poda de
+              -- 90 dias; api_observations é a linha viva, que some. Ler só a
+              -- viva fazia números de dias passados MUDAREM sozinhos.
+              count(*) FILTER (
+                WHERE m.verdict = 'casado'
+                  AND COALESCE(m.obs_would_pass, ao.would_pass) = true
+              ) AS would_pass_casados
          FROM intel_matches m
          JOIN intel_posts ip ON ip.id = m.post_id
+         -- O grupo do PRÓPRIO dono não entra no placar de manchete: "eles
+         -- postaram", "atraso mediano" e "casadas" são afirmações sobre os
+         -- CONCORRENTES. Incluir o nosso grupo mistura o observador com o
+         -- observado — e o nosso atraso é pequeno e conhecido, então puxaria
+         -- a mediana para baixo sem ninguém perceber.
+         JOIN intel_groups ig ON ig.id = ip.group_id AND ig.kind <> 'proprio'
          LEFT JOIN api_observations ao ON ao.id = m.observation_id
          CROSS JOIN bounds b
         WHERE ip.posted_at >= b.inicio_ts
@@ -392,15 +419,17 @@ export async function correlacaoDoDia(
             m.confidence                    AS confidence,
             m.title_sim                     AS title_sim,
             m.product_id                    AS product_id,
-            ao.title                        AS obs_title,
-            ao.price                        AS obs_price,
+            -- Fotografia congelada primeiro, observação viva como reserva:
+            -- depois da poda o par continua contando a mesma história.
+            COALESCE(m.obs_title, ao.title)                   AS obs_title,
+            COALESCE(m.obs_price, ao.price)                   AS obs_price,
             m.first_seen_at                 AS first_seen_at,
             m.lag_seconds                   AS lag_seconds,
-            ao.would_pass                   AS would_pass,
-            ao.reject_reason                AS reject_reason,
-            ao.commission_brl               AS commission_brl,
-            ao.sales                        AS sales,
-            ao.rating_star                  AS rating_star
+            COALESCE(m.obs_would_pass, ao.would_pass)         AS would_pass,
+            COALESCE(m.obs_reject_reason, ao.reject_reason)   AS reject_reason,
+            COALESCE(m.obs_commission_brl, ao.commission_brl) AS commission_brl,
+            COALESCE(m.obs_sales, ao.sales)                   AS sales,
+            COALESCE(m.obs_rating_star, ao.rating_star)       AS rating_star
        FROM intel_posts ip
        -- INNER JOIN é seguro: group_id é NOT NULL + FK, nunca há post órfão.
        JOIN intel_groups ig ON ig.id = ip.group_id
@@ -760,6 +789,15 @@ export async function perfilDeEscolha(dias?: number): Promise<PerfilEscolhido[]>
         WHERE m.verdict = 'casado'
           AND m.product_id IS NOT NULL
           AND ig.kind <> 'proprio'
+          /*
+           * MESMA janela do lado "cardápio" (o CTE base abaixo). Sem isto,
+           * mexer no seletor de período do painel mudava só um dos lados: o
+           * cardápio encolhia e as "escolhidas" continuavam sendo TODAS de
+           * sempre. E o viés ia na direção mais enganosa possível — produto
+           * escolhido há 80 dias que segue no cardápio contaria como
+           * "escolhido no período", que é justamente o produto de lista fixa.
+           */
+          AND ip.posted_at >= now() - ($1 || ' days')::interval
      ),
      base AS (
        /*
