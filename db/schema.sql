@@ -376,6 +376,27 @@ CREATE TABLE IF NOT EXISTS intel_matches (
   UNIQUE (post_id)
 );
 /*
+ * FOTOGRAFIA DA OBSERVAÇÃO NO MOMENTO DO CASAMENTO.
+ *
+ * Sem isto, a poda de 90 dias REESCREVE O PASSADO: `api_observations` é
+ * apagada, `intel_matches.observation_id` vira NULL (ON DELETE SET NULL), e a
+ * partir daí `wouldPassCasados` cai, o perfil perde a linha e a correlação do
+ * dia mostra `casado` com título e preço vazios. Um número que o dono anotou
+ * semana passada muda sozinho — que é a pior coisa que um painel pode fazer.
+ *
+ * Guardar a fotografia aqui torna o match IMUTÁVEL: ele é um fato histórico
+ * ("neste instante, este post correspondia a esta oferta, que custava X"), e
+ * fato histórico não deve depender de a linha de origem ainda existir.
+ */
+ALTER TABLE intel_matches ADD COLUMN IF NOT EXISTS obs_title          TEXT;
+ALTER TABLE intel_matches ADD COLUMN IF NOT EXISTS obs_price          NUMERIC(12,2);
+ALTER TABLE intel_matches ADD COLUMN IF NOT EXISTS obs_commission_brl NUMERIC(12,2);
+ALTER TABLE intel_matches ADD COLUMN IF NOT EXISTS obs_sales          INT;
+ALTER TABLE intel_matches ADD COLUMN IF NOT EXISTS obs_rating_star    NUMERIC(3,2);
+ALTER TABLE intel_matches ADD COLUMN IF NOT EXISTS obs_would_pass     BOOLEAN;
+ALTER TABLE intel_matches ADD COLUMN IF NOT EXISTS obs_reject_reason  TEXT;
+
+/*
  * 'outra_plataforma' entrou DEPOIS, a partir de mensagens reais de um grupo
  * concorrente: em 17 posts observados, 10 eram Amazon e 7 Mercado Livre —
  * ZERO Shopee. Post de outra loja não tem como casar contra a API da Shopee, e

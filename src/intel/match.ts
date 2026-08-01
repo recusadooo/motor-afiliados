@@ -115,12 +115,34 @@ export function scoreCandidato(params: {
 
   if (postPrice != null && obsPrice != null && obsPrice > 0) {
     const deltaRel = Math.abs(postPrice - obsPrice) / obsPrice;
-    priceDeltaPct = arredondar(deltaRel * 100, 2);
+    /*
+     * TETO NO DELTA: a coluna é NUMERIC(7,2), que satura em 99.999,99. Sem
+     * clamp, um post de R$ 4.999 casando (por título) com uma observação de
+     * R$ 3,90 dá 128.079% -> `numeric field overflow` -> ROLLBACK da gravação
+     * -> `matched_at` não é gravado -> o post volta na fila a cada 5 minutos
+     * PARA SEMPRE, gerando erro no log e ocupando vaga do lote. Post-veneno.
+     */
+    priceDeltaPct = arredondar(Math.min(deltaRel * 100, 99999), 2);
 
     if (tolerancia > 0) {
       if (deltaRel <= tolerancia) {
-        // 1 no delta zero, 0 no limite da tolerância: taper linear.
-        confidence += BONUS_PRECO_MAX * (1 - deltaRel / tolerancia);
+        /*
+         * Bônus sobre a FOLGA que resta até 1, não sobre o valor absoluto.
+         *
+         * Antes era `+= BONUS * taper` com corte em 1.0, e isso achatava o
+         * topo: titleSim 0.90 e 0.80, ambos com preço exato, viravam 1.000 os
+         * DOIS. Diferença zero < margem de ambiguidade (0.06) => saíam como
+         * `ambiguo` sem ser. E grupo de promoção cola o título da Shopee
+         * verbatim com frequência, então titleSim alto é comum: o falso
+         * ambíguo seria a regra.
+         *
+         * Com a folga, 0.90 vira 0.925 e 0.80 vira 0.85 — continuam
+         * distintos, a ordem é preservada, e o resultado nunca passa de 1
+         * sem precisar de corte. Sem preço, a confiança segue IGUAL ao
+         * titleSim, que é o contrato testado.
+         */
+        const taper = 1 - deltaRel / tolerancia;
+        confidence += BONUS_PRECO_MAX * taper * (1 - confidence);
       } else {
         // cresce a partir de 0 na fronteira da tolerância, satura em 2x.
         const excesso = (deltaRel - tolerancia) / tolerancia;
@@ -128,10 +150,13 @@ export function scoreCandidato(params: {
       }
     } else {
       // tolerância zero/negativa (config incomum): só preço EXATO bonifica.
-      confidence += deltaRel === 0 ? BONUS_PRECO_MAX : -PENALIDADE_PRECO_MAX;
+      confidence +=
+        deltaRel === 0 ? BONUS_PRECO_MAX * (1 - confidence) : -PENALIDADE_PRECO_MAX;
     }
   }
 
+  // O clamp continua como rede de segurança, mas com o bônus sobre a folga
+  // ele nunca é acionado pelo lado de cima — só a penalidade pode levar a 0.
   confidence = arredondar(Math.max(0, Math.min(1, confidence)), 3);
   return { confidence, priceDeltaPct };
 }
@@ -360,6 +385,22 @@ interface GravarParams {
   lagSeconds: number | null;
   firstSeenAt: string | null;
   verdict: Verdict;
+  /**
+   * Fotografia da observação NO MOMENTO do casamento. Copiada para
+   * `intel_matches` de propósito: a poda de 90 dias apaga `api_observations` e
+   * o `ON DELETE SET NULL` desfaria a ligação, fazendo números de dias
+   * passados MUDAREM sozinhos no painel. Um match é fato histórico e não pode
+   * depender de a linha de origem ainda existir.
+   */
+  obs?: {
+    title: string | null;
+    price: number | null;
+    commissionBrl: number | null;
+    sales: number | null;
+    ratingStar: number | null;
+    wouldPass: boolean | null;
+    rejectReason: string | null;
+  } | null;
 }
 
 /**
@@ -381,8 +422,10 @@ async function gravarMatch(p: GravarParams): Promise<void> {
     await c.query(
       `INSERT INTO intel_matches
          (post_id, observation_id, product_id, method, confidence, title_sim,
-          price_delta_pct, lag_seconds, first_seen_at, verdict)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          price_delta_pct, lag_seconds, first_seen_at, verdict,
+          obs_title, obs_price, obs_commission_brl, obs_sales, obs_rating_star,
+          obs_would_pass, obs_reject_reason)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
        ON CONFLICT (post_id) DO UPDATE SET
          observation_id  = EXCLUDED.observation_id,
          product_id      = EXCLUDED.product_id,
@@ -393,6 +436,13 @@ async function gravarMatch(p: GravarParams): Promise<void> {
          lag_seconds     = EXCLUDED.lag_seconds,
          first_seen_at   = EXCLUDED.first_seen_at,
          verdict         = EXCLUDED.verdict,
+         obs_title          = EXCLUDED.obs_title,
+         obs_price          = EXCLUDED.obs_price,
+         obs_commission_brl = EXCLUDED.obs_commission_brl,
+         obs_sales          = EXCLUDED.obs_sales,
+         obs_rating_star    = EXCLUDED.obs_rating_star,
+         obs_would_pass     = EXCLUDED.obs_would_pass,
+         obs_reject_reason  = EXCLUDED.obs_reject_reason,
          -- IS DISTINCT FROM (não <>) de propósito: <> com um lado NULL
          -- devolve NULL, e o CASE trata condição NULL como "não bateu" —
          -- cairia no ELSE bem quando o par se perde (observação antiga ->
@@ -408,6 +458,9 @@ async function gravarMatch(p: GravarParams): Promise<void> {
       [
         p.postId, p.observationId, p.productId, p.method, p.confidence, p.titleSim,
         p.priceDeltaPct, p.lagSeconds, p.firstSeenAt, p.verdict,
+        p.obs?.title ?? null, p.obs?.price ?? null, p.obs?.commissionBrl ?? null,
+        p.obs?.sales ?? null, p.obs?.ratingStar ?? null,
+        p.obs?.wouldPass ?? null, p.obs?.rejectReason ?? null,
       ],
     );
     await c.query(`UPDATE intel_posts SET matched_at = now() WHERE id = $1`, [p.postId]);
@@ -481,6 +534,40 @@ async function semCasamento(postId: string, candidato?: CandidatoAvaliado): Prom
   return paraMatchResult(p);
 }
 
+/**
+ * Busca a fotografia da observação VENCEDORA para congelar no match.
+ *
+ * Uma query extra por post casado, de propósito: trazer estes campos nas duas
+ * consultas de candidato inflaria o payload de dezenas de linhas para usar só
+ * uma. Aqui é uma leitura por chave primária.
+ */
+async function fotografiaDaObservacao(
+  observationId: string,
+): Promise<NonNullable<GravarParams['obs']>> {
+  const r = await queryOne<{
+    title: string | null;
+    price: string | null;
+    commission_brl: string | null;
+    sales: number | null;
+    rating_star: string | null;
+    would_pass: boolean | null;
+    reject_reason: string | null;
+  }>(
+    `SELECT title, price, commission_brl, sales, rating_star, would_pass, reject_reason
+       FROM api_observations WHERE id = $1`,
+    [observationId],
+  );
+  return {
+    title: r?.title ?? null,
+    price: toNum(r?.price),
+    commissionBrl: toNum(r?.commission_brl),
+    sales: r?.sales ?? null,
+    ratingStar: toNum(r?.rating_star),
+    wouldPass: r?.would_pass ?? null,
+    rejectReason: r?.reject_reason ?? null,
+  };
+}
+
 /** Post de outra loja: veredito próprio, sem consultar candidato nenhum. */
 async function foraDaPlataforma(postId: string): Promise<MatchResult> {
   const p: GravarParams = {
@@ -536,7 +623,26 @@ export async function matchOnePost(postId: string): Promise<MatchResult> {
 
   const avaliados = await buscarCandidatos(post, cfg);
   const melhor = avaliados[0];
-  if (!melhor || melhor.confidence < cfg.INTEL_MATCH_MIN_SIM) {
+  /*
+   * O corte é sobre `titleSim`, NÃO sobre `confidence`.
+   *
+   * `INTEL_MATCH_MIN_SIM` é, por definição e por nome, o limiar de
+   * similaridade de TÍTULO — e os dois caminhos de busca já o aplicaram.
+   * Reaplicá-lo à confiança (que carrega ±preço) transformava o preço em
+   * VETO, com um efeito perverso e invisível:
+   *
+   *   titleSim 0.55 + preço 30% fora  -> confiança abaixo do limiar -> descartado
+   *   titleSim 0.45 SEM preço legível -> nada a penalizar            -> aceito
+   *
+   * Ou seja, post em que o grupo não escreveu preço casava MAIS FÁCIL que post
+   * com preço — e a mediana de atraso passava a ser calculada preferencialmente
+   * sobre os posts cujo título ninguém confirmou. Contradizia o próprio
+   * docstring do módulo ("preço é confirmação, não resgate"): era veto.
+   *
+   * O preço continua pesando no RANQUEAMENTO (a ordenação por confiança
+   * escolhe qual candidato vence) — só não elimina mais ninguém sozinho.
+   */
+  if (!melhor || melhor.titleSim < cfg.INTEL_MATCH_MIN_SIM) {
     // `melhor` pode não existir (nenhuma observação plausível na janela) ou
     // existir mas não bater o limiar — semCasamento decide sozinho se o
     // quase-acerto passa do piso de ruído e vale preservar.
@@ -574,6 +680,9 @@ export async function matchOnePost(postId: string): Promise<MatchResult> {
     // "grave o melhor como observation_id mesmo assim, para o humano poder
     // conferir" — ambíguo e casado gravam os MESMOS campos; só o veredito muda.
     verdict: ambiguo ? 'ambiguo' : 'casado',
+    // Congela o estado da oferta AGORA: depois da poda de 90 dias a linha de
+    // origem some, e sem isto o número do painel para aquele dia mudaria.
+    obs: await fotografiaDaObservacao(melhor.observationId),
   };
   await gravarMatch(p);
   return paraMatchResult(p);

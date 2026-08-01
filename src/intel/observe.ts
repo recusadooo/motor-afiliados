@@ -2,6 +2,7 @@ import { loadConfig, type Config } from '../config';
 import { log } from '../logger';
 import { query, queryOne } from '../db';
 import { productOfferV2 } from '../shopee/queries';
+import { ShopeeApiError, ShopeeContaEmRiscoError, SHOPEE_ERROR_CODES } from '../shopee/client';
 import { normalizeProduct } from '../pipeline/normalize';
 import { normalizeText } from '../util';
 import type { NormalizedOffer, RejectResult } from '../types';
@@ -30,8 +31,18 @@ export interface SweepStats {
   keywords: number; // quantas keywords foram varridas
   fetched: number; // itens que a API devolveu (bruto, com repetição entre keywords)
   observed: number; // linhas realmente gravadas (após ON CONFLICT DO NOTHING)
-  wouldPass: number; // quantas teriam passado nos filtros de produção
-  errors: number; // keywords que falharam
+  wouldPass: number; // produtos ÚNICOS que teriam passado nos filtros de produção (dedup por produto — ver `avaliadosNestaVarredura`)
+  errors: number; // keywords que falharam (inclui a que disparou o abort, se houver)
+  // Avaliações puladas do agregado por já terem contado o MESMO produto numa
+  // keyword anterior desta varredura. Não é erro — mede a sobreposição entre
+  // keywords (ex.: "fone de ouvido" e "headset gamer" trazendo o mesmo item).
+  repetidosEntreKeywords: number;
+  // true quando um erro SISTÊMICO (freio de taxa próprio ou da Shopee, conta em
+  // risco) interrompeu a varredura antes de cobrir todas as keywords. Com
+  // incompleta=true, os números acima são um corte PARCIAL do cardápio — não
+  // "a Shopee não tinha mais nada". O painel precisa saber a diferença.
+  incompleta: boolean;
+  keywordsNaoVarridas: number; // quantas keywords ficaram de fora por causa do abort (0 se completa)
   ms: number;
 }
 
@@ -89,6 +100,17 @@ export function runSweepExclusivo(trigger = 'cron'): Promise<SweepStats> {
  * teria reprovado?". Motivo de "fora do nicho" é FIXO (não o texto dinâmico de
  * `rejectByRelevance`, que embutiria a keyword no texto e fragmentaria o
  * agregado por palavra-chave em vez de por motivo).
+ *
+ * IMPORTANTE — o que `would_pass` NÃO simula: a produção (`shopeeFeed.ts`) não
+ * para no filtro. Depois de filtrar, ela ainda RANQUEIA e corta por
+ * `CAPTURE_TOP_PER_KEYWORD` (só a(s) melhor(es) de cada keyword sobrevive(m)),
+ * por `CAPTURE_MAX_PER_CYCLE` (teto global do ciclo), roda só uma rotação
+ * parcial das keywords a cada ciclo, e deduplica quase-duplicata por
+ * `similarityKey`. Uma linha com `would_pass=true` quer dizer "passaria nos
+ * FILTROS" — não "teria sido capturada": entre várias aprovadas, a chance de
+ * ser a escolhida é bem menor. De propósito não simulamos essas travas aqui
+ * (rank e corte dependem do LOTE inteiro da keyword junto, não de item
+ * isolado); quem ler o número no painel precisa saber da diferença.
  */
 function avaliarFiltrosProducao(
   offer: NormalizedOffer,
@@ -110,6 +132,16 @@ function avaliarFiltrosProducao(
     // Números -> 'N' para o motivo ser AGREGÁVEL (senão "R$0,32 < R$0,50" e
     // "R$0,41 < R$0,50" viram dois motivos diferentes no agregado do painel).
     return { wouldPass: false, reason: falhou.reason?.replace(/\d+([.,]\d+)?/g, 'N') ?? 'filtro' };
+  }
+  // Mesmo filtro de `shopeeFeed.ts`, na MESMA posição relativa (depois dos
+  // `checks` acima, antes de aprovar): ganho mínimo por venda em TAXA
+  // (`CAPTURE_MIN_COMMISSION`, decimal) — diferente de `CAPTURE_MIN_COMMISSION_BRL`
+  // (ganho em R$, já coberto por `rejectByCommissionValue` acima). Hoje o
+  // default é 0 (inerte), mas o painel existe para o dono MEXER nos filtros —
+  // sem este bloco, `would_pass` passaria a mentir no dia em que ele setasse
+  // `CAPTURE_MIN_COMMISSION` > 0.
+  if (offer.commissionRate != null && offer.commissionRate < cfg.CAPTURE_MIN_COMMISSION) {
+    return { wouldPass: false, reason: 'comissão abaixo do mínimo' };
   }
   return { wouldPass: true, reason: null };
 }
@@ -194,6 +226,24 @@ async function inserirLote(sweepId: string, linhas: LinhaObservacao[]): Promise<
 }
 
 /**
+ * Distingue erro SISTÊMICO — que vai se repetir em TODA keyword seguinte — de
+ * erro pontual de uma keyword isolada. Sistêmico = freio de taxa PRÓPRIO
+ * (`src/shopee/throttle.ts`, teto diário: lança `Error` comum, sem classe
+ * própria, só dá pra reconhecer pela mensagem) OU erro da Shopee com código de
+ * rate limit (10030) OU conta em risco/blacklist (10033/10034, já chega como
+ * `ShopeeContaEmRiscoError` — ver `src/shopee/client.ts`). Continuar o laço
+ * nesses casos só empilha `errors` idênticos e termina "com sucesso" — o
+ * motivo de existir esta função.
+ */
+function isErroSistemico(err: unknown): boolean {
+  if (err instanceof ShopeeContaEmRiscoError) return true; // 10033/10034
+  if (err instanceof ShopeeApiError && err.code === SHOPEE_ERROR_CODES.RATE_LIMIT) return true; // 10030
+  const msg = err instanceof Error ? err.message : String(err);
+  // Sem classe própria no throttle — a mensagem é o único sinal disponível.
+  return /freio de seguran[çc]a|teto di[áa]rio/i.test(msg);
+}
+
+/**
  * Uma varredura completa: TODAS as keywords de `CAPTURE_KEYWORDS` (não a
  * rotação de 16/ciclo da produção — aqui o objetivo é o cardápio inteiro),
  * uma de cada vez. Sequencial por escolha: `productOfferV2` já serializa
@@ -207,7 +257,17 @@ export async function runSweep(trigger = 'cron'): Promise<SweepStats> {
 
   if (!cfg.INTEL_ENABLED) {
     log.info('varredura de inteligência desligada (INTEL_ENABLED=false) — nada feito', { trigger });
-    return { keywords: 0, fetched: 0, observed: 0, wouldPass: 0, errors: 0, ms: Date.now() - t0 };
+    return {
+      keywords: 0,
+      fetched: 0,
+      observed: 0,
+      wouldPass: 0,
+      errors: 0,
+      repetidosEntreKeywords: 0,
+      incompleta: false,
+      keywordsNaoVarridas: 0,
+      ms: Date.now() - t0,
+    };
   }
 
   const keywords = cfg.CAPTURE_KEYWORDS.split(',').map((k) => k.trim()).filter(Boolean);
@@ -217,12 +277,27 @@ export async function runSweep(trigger = 'cron'): Promise<SweepStats> {
     observed: 0,
     wouldPass: 0,
     errors: 0,
+    repetidosEntreKeywords: 0,
+    incompleta: false,
+    keywordsNaoVarridas: 0,
     ms: 0,
   };
   // Cortes agregados por motivo — só entra no JSON gravado em
   // `intel_sweeps.stats` (para o painel explicar o corte); não faz parte do
   // contrato de retorno (`SweepStats`) porque o chamador não precisa disso.
   const cut: Record<string, number> = {};
+  // Produto (platform+productId, a MESMA chave do ON CONFLICT do INSERT) já
+  // contado em `stats.wouldPass`/`cut` NESTA varredura. O mesmo produto pode
+  // aparecer em duas keywords diferentes (ex.: "fone de ouvido" e "headset
+  // gamer"); sem isso o agregado conta por AVALIAÇÃO, não por produto, e pode
+  // até exceder `observed` (que É deduplicado por ON CONFLICT) — um absurdo
+  // visível no painel.
+  const avaliadosNestaVarredura = new Set<string>();
+  // Causa do abort sistêmico, se houver. Vai para `intel_sweeps.error` mesmo
+  // no caminho de "sucesso": um abort sistêmico não LANÇA — a varredura
+  // termina cedo e devolve o parcial que já coletou (dado parcial é válido;
+  // o que não pode é passar por completo).
+  let motivoAbort: string | null = null;
 
   // Fora do try: se nem essa INSERT funcionar (banco fora do ar), não existe
   // linha nenhuma para gravar o erro depois — deixa propagar puro.
@@ -233,7 +308,8 @@ export async function runSweep(trigger = 'cron'): Promise<SweepStats> {
   const sweepId = sweepRow?.id ?? null;
 
   try {
-    for (const keyword of keywords) {
+    for (let i = 0; i < keywords.length; i++) {
+      const keyword = keywords[i]!;
       try {
         const page = await productOfferV2({
           keyword,
@@ -245,8 +321,18 @@ export async function runSweep(trigger = 'cron'): Promise<SweepStats> {
         const linhas: LinhaObservacao[] = page.nodes.map((node) => {
           const offer = normalizeProduct(node);
           const veredito = avaliarFiltrosProducao(offer, keyword, cfg);
-          if (veredito.wouldPass) stats.wouldPass += 1;
-          if (veredito.reason) cut[veredito.reason] = (cut[veredito.reason] ?? 0) + 1;
+          // A LINHA sempre grava would_pass/reject_reason individual (dado por
+          // item, sempre correto). O AGREGADO só conta a primeira vez que o
+          // produto aparece nesta varredura — repetição vira
+          // `repetidosEntreKeywords`, não um segundo voto em `wouldPass`/`cut`.
+          const chaveProduto = `${offer.platform}:${offer.productId}`;
+          if (avaliadosNestaVarredura.has(chaveProduto)) {
+            stats.repetidosEntreKeywords += 1;
+          } else {
+            avaliadosNestaVarredura.add(chaveProduto);
+            if (veredito.wouldPass) stats.wouldPass += 1;
+            if (veredito.reason) cut[veredito.reason] = (cut[veredito.reason] ?? 0) + 1;
+          }
           const commissionBrl =
             offer.price != null && offer.commissionRate != null
               ? offer.price * offer.commissionRate
@@ -275,8 +361,26 @@ export async function runSweep(trigger = 'cron'): Promise<SweepStats> {
           stats.observed += await inserirLote(sweepId, linhas);
         }
       } catch (err) {
-        // Uma keyword ruim (erro de API, timeout) não pode derrubar a
-        // varredura inteira — ela existe justamente para cobrir TODAS as 48.
+        if (isErroSistemico(err)) {
+          // Freio de taxa (nosso ou da Shopee) ou conta em risco: TODAS as
+          // keywords seguintes vão falhar do MESMO jeito. Insistir só empilha
+          // `errors` idênticos e termina com um `observed` PARCIAL indistinguível,
+          // no painel, de "a Shopee não tinha nada" — número errado é pior que
+          // número ausente. Aborta o laço e marca a varredura como incompleta.
+          const msg = err instanceof Error ? err.message : String(err);
+          stats.errors += 1;
+          stats.incompleta = true;
+          stats.keywordsNaoVarridas = keywords.length - i;
+          motivoAbort = msg;
+          log.error(
+            'varredura de inteligência ABORTADA — erro sistêmico da Shopee (freio/rate limit/conta em risco)',
+            { keyword, keywordsNaoVarridas: stats.keywordsNaoVarridas, err: msg },
+          );
+          break;
+        }
+        // Erro PONTUAL desta keyword (erro de API, timeout, resposta malformada)
+        // não pode derrubar a varredura inteira — ela existe justamente para
+        // cobrir TODAS as 48.
         stats.errors += 1;
         log.error('varredura falhou para keyword', {
           keyword,
@@ -288,11 +392,18 @@ export async function runSweep(trigger = 'cron'): Promise<SweepStats> {
     stats.ms = Date.now() - t0;
     if (sweepId) {
       await query(
-        `UPDATE intel_sweeps SET finished_at = now(), observed = $2, keywords = $3, stats = $4 WHERE id = $1`,
-        [sweepId, stats.observed, stats.keywords, JSON.stringify({ ...stats, cut })],
+        // `error` também é gravado no caminho de "sucesso": um abort sistêmico
+        // não LANÇA (a varredura termina cedo e devolve o parcial), então é
+        // aqui — não no catch de fora — que a causa fica visível no painel.
+        `UPDATE intel_sweeps SET finished_at = now(), observed = $2, keywords = $3, stats = $4, error = $5 WHERE id = $1`,
+        [sweepId, stats.observed, stats.keywords, JSON.stringify({ ...stats, cut }), motivoAbort],
       );
     }
-    log.info('varredura de inteligência concluída', { ...stats, cut });
+    if (stats.incompleta) {
+      log.error('varredura de inteligência TERMINOU INCOMPLETA', { ...stats, cut });
+    } else {
+      log.info('varredura de inteligência concluída', { ...stats, cut });
+    }
     return stats;
   } catch (err) {
     // Só chega aqui algo SISTÊMICO (ex.: banco caiu no meio do loop) — erro de

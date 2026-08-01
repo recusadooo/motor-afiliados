@@ -582,14 +582,32 @@ async function carregarVarreduras() {
       '<button class="btn" data-acao="varredura">Varrer a API agora</button>');
     return;
   }
-  $('varreduras').innerHTML = `<div class="rolagem"><table>
-    <thead><tr><th>quando</th><th>gatilho</th><th>keywords</th><th>observadas</th><th>nosso filtro aprovaria</th><th>duração</th></tr></thead>
+  /* A coluna "incompleta" não é enfeite: varredura interrompida pelo freio da
+     Shopee gravava `observed` parcial com `error` nulo, e ficava
+     indistinguível de "a Shopee não tinha nada". Como esse `observed` é o
+     denominador da taxa de aproveitamento, um dia truncado inflava a taxa —
+     e ninguém tinha como saber. */
+  const incompletas = runs.filter((r) => r.stats?.incompleta || r.error).length;
+  const aviso = incompletas
+    ? `<p class="nota err" style="margin-bottom:10px">${incompletas} varredura(s) interrompidas
+       antes de cobrir todas as palavras-chave. Os números desses dias são um corte parcial do
+       cardápio, não "a Shopee não tinha nada" — não use para calcular taxa.</p>`
+    : '';
+  $('varreduras').innerHTML = aviso + `<div class="rolagem"><table>
+    <thead><tr><th>quando</th><th>gatilho</th><th>keywords</th><th>observadas</th>
+    <th>passaria nos filtros</th><th>repetidas entre keywords</th><th>duração</th></tr></thead>
     <tbody>${runs.map((r) => {
       const s = r.stats || {};
-      return `<tr><td>${esc(dataHora(r.started_at))}</td><td>${esc(r.trigger)}</td>
+      const truncada = s.incompleta || r.error;
+      const marca = truncada
+        ? `<span class="tag corte">INCOMPLETA</span>${s.keywordsNaoVarridas ? ` <span class="mono">${s.keywordsNaoVarridas} keywords de fora</span>` : ''}`
+        : '';
+      return `<tr><td>${esc(dataHora(r.started_at))} ${marca}</td><td>${esc(r.trigger)}</td>
         <td>${r.keywords ?? '—'}</td><td class="alerta">${inteiro(r.observed ?? 0)}</td>
         <td>${inteiro(s.wouldPass ?? 0)}</td>
-        <td>${s.ms != null ? (s.ms / 1000).toFixed(1) + 's' : (r.finished_at ? '—' : 'rodando…')}</td></tr>`;
+        <td>${s.repetidosEntreKeywords != null ? inteiro(s.repetidosEntreKeywords) : '—'}</td>
+        <td>${s.ms != null ? (s.ms / 1000).toFixed(1) + 's' : (r.finished_at ? '—' : 'rodando…')}</td></tr>
+        ${r.error ? `<tr><td colspan="7" class="err mono" style="font-size:11px">${esc(String(r.error).slice(0, 240))}</td></tr>` : ''}`;
     }).join('')}</tbody></table></div>`;
 }
 
