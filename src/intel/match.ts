@@ -256,12 +256,19 @@ async function buscarCandidatos(post: PostRow, cfg: Config): Promise<CandidatoAv
     // aceitável no volume atual (a varredura gera algumas centenas de
     // observações por dia, ver comentário de INTEL_SWEEP_CRON em config.ts).
     const rows = await query<{ id: string; product_id: string; price: string | null; sim: number }>(
-      `SELECT id, product_id, price, similarity(title_norm, $1) AS sim
-         FROM api_observations
-        WHERE platform = 'shopee'
-          AND observed_at <= $2
-          AND observed_at >= $2::timestamptz - ($3 || ' hours')::interval
-          AND similarity(title_norm, $1) >= $4
+      `SELECT id, product_id, price, sim
+         FROM (
+           SELECT DISTINCT ON (product_id)
+                  id, product_id, price, similarity(title_norm, $1) AS sim
+             FROM api_observations
+            WHERE platform = 'shopee'
+              AND observed_at >= $2::timestamptz - ($3 || ' hours')::interval
+              AND observed_at <= $2::timestamptz + ($3 || ' hours')::interval
+              AND similarity(title_norm, $1) >= $4
+            ORDER BY product_id,
+                     (observed_at <= $2::timestamptz) DESC,
+                     observed_at DESC
+         ) d
         ORDER BY sim DESC
         LIMIT ${LIMITE_CANDIDATOS_TRGM}`,
       [titleNorm, post.posted_at, janelaHoras, minSim],
@@ -287,12 +294,14 @@ async function buscarCandidatos(post: PostRow, cfg: Config): Promise<CandidatoAv
   // `minSim` que o WHERE usa no caminho com pg_trgm (ver docstring acima:
   // os dois caminhos são de propósito equivalentes).
   const rows = await query<{ id: string; product_id: string; title_norm: string; price: string | null }>(
-    `SELECT id, product_id, title_norm, price
+    `SELECT DISTINCT ON (product_id) id, product_id, title_norm, price
        FROM api_observations
       WHERE platform = 'shopee'
-        AND observed_at <= $1
         AND observed_at >= $1::timestamptz - ($2 || ' hours')::interval
-      ORDER BY observed_at DESC
+        AND observed_at <= $1::timestamptz + ($2 || ' hours')::interval
+      ORDER BY product_id,
+               (observed_at <= $1::timestamptz) DESC,
+               observed_at DESC
       LIMIT ${LIMITE_CANDIDATOS_DEGRADADO}`,
     [post.posted_at, janelaHoras],
   );
@@ -534,7 +543,10 @@ export async function matchOnePost(postId: string): Promise<MatchResult> {
     return semCasamento(post.id, melhor);
   }
 
-  const segundo = avaliados[1];
+  // Explicitamente o melhor de OUTRO produto. Depois do DISTINCT ON isso já
+  // seria `avaliados[1]`, mas deixar implícito é o tipo de acoplamento que
+  // volta a quebrar quando alguém mexer na consulta.
+  const segundo = avaliados.find((c) => c.productId !== melhor.productId);
   // Ambíguo só quando o 2º melhor é de OUTRO produto: dois candidatos bons
   // do MESMO product_id (a mesma oferta vista em duas varreduras) não é
   // ambiguidade nenhuma, é o mesmo produto observado duas vezes.

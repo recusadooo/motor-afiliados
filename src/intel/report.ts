@@ -617,20 +617,58 @@ export async function perfilDeEscolha(dias?: number): Promise<PerfilEscolhido[]>
 
   const rows = await query<PerfilEscolhidoRow>(
     `WITH escolhidas AS (
-       -- DISTINCT é essencial: uma observação pode ser casada por MAIS de um
-       -- post (dois grupos postando o mesmo produto). Sem o DISTINCT aqui, o
-       -- LEFT JOIN abaixo duplicaria a linha de "base" e inflaria a amostra/
-       -- mediana das escolhidas.
-       SELECT DISTINCT observation_id
-         FROM intel_matches
-        WHERE verdict = 'casado' AND observation_id IS NOT NULL
+       /*
+        * Por PRODUTO, não por observação. O mesmo produto casado por dois
+        * grupos (ou por duas linhas de observação diferentes) é UM produto
+        * escolhido, não dois — deduplicar por observation_id não resolvia
+        * isso, porque cada post casa com a linha de observação mais próxima
+        * DELE, e duas linhas distintas passavam pelo DISTINCT.
+        *
+        * Exclui o grupo do PRÓPRIO dono: se ele cadastrar o próprio grupo
+        * para comparar, "o que ELES escolhem" passaria a incluir as NOSSAS
+        * ofertas — que por construção têm comissão alta (CAPTURE_MIN_COMMISSION_BRL
+        * + offerScore). O gráfico então "confirmaria" que eles escolhem
+        * comissão alta porque NÓS escolhemos. Circular e invisível.
+        */
+       SELECT DISTINCT m.product_id
+         FROM intel_matches m
+         JOIN intel_posts   ip ON ip.id = m.post_id
+         JOIN intel_groups  ig ON ig.id = ip.group_id
+        WHERE m.verdict = 'casado'
+          AND m.product_id IS NOT NULL
+          AND ig.kind <> 'proprio'
      ),
      base AS (
-       SELECT ao.price, ao.commission_brl, ao.sales, ao.rating_star, ao.advertised_discount_pct,
-              (e.observation_id IS NOT NULL) AS escolhida
+       /*
+        * UMA linha por PRODUTO — este é o conserto principal desta consulta.
+        *
+        * Antes era uma linha por (varredura, produto): em 14 dias, ~12
+        * varreduras/dia x ~960 linhas = ~161.000 linhas para ~1.000 produtos
+        * distintos. Duas consequências, as duas graves:
+        *
+        *  1. amostraCardapio reportava ~161.000 quando o N real era ~1.000,
+        *     e o painel mostra esse número ao lado da mediana — dava a
+        *     impressão de solidez estatística que não existia;
+        *  2. a mediana do "cardápio" saía PONDERADA POR PERSISTÊNCIA: produto
+        *     que ficou os 14 dias no top-20 pesava 168x mais que um que
+        *     apareceu uma vez. Não era a mediana do cardápio, era a mediana
+        *     do tempo de permanência.
+        *
+        * E é exatamente esta consulta que sustenta a afirmação "eles escolhem
+        * comissão alta". O lado "escolhidas" já era por match (dezenas), então
+        * os dois lados eram unidades diferentes comparadas no mesmo gráfico.
+        *
+        * A observação mais RECENTE representa o produto: é o estado em que a
+        * oferta está agora, que é o que interessa para comparar perfil.
+        */
+       SELECT DISTINCT ON (ao.product_id)
+              ao.price, ao.commission_brl, ao.sales, ao.rating_star,
+              ao.advertised_discount_pct,
+              (e.product_id IS NOT NULL) AS escolhida
          FROM api_observations ao
-         LEFT JOIN escolhidas e ON e.observation_id = ao.id
+         LEFT JOIN escolhidas e ON e.product_id = ao.product_id
         WHERE ao.observed_at >= now() - ($1 || ' days')::interval
+        ORDER BY ao.product_id, ao.observed_at DESC
      )
      SELECT 'preço' AS metrica, 1 AS ordem,
             (percentile_cont(0.5) WITHIN GROUP (ORDER BY price) FILTER (WHERE escolhida))::text AS mediana_escolhida,
