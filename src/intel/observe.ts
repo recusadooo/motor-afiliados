@@ -238,6 +238,24 @@ async function inserirLote(sweepId: string, linhas: LinhaObservacao[]): Promise<
 function isErroSistemico(err: unknown): boolean {
   if (err instanceof ShopeeContaEmRiscoError) return true; // 10033/10034
   if (err instanceof ShopeeApiError && err.code === SHOPEE_ERROR_CODES.RATE_LIMIT) return true; // 10030
+  /*
+   * 10035 (conta sem acesso à Open API) e 10020 (assinatura inválida) entram
+   * pelo MESMO motivo dos outros: não são falha daquela keyword, são falha da
+   * conta ou da credencial — vão se repetir idênticos nas 48 keywords.
+   *
+   * Sem isso, o dia em que o acesso for revogado ou o segredo for rotacionado
+   * sem atualizar o `.env` produziria exatamente o bug que este bloco existe
+   * para matar: 48 chamadas queimadas, varredura marcada como concluída,
+   * `observed = 0` e `error = NULL` — indistinguível de "a Shopee não tinha
+   * nada". E `observed` é denominador da taxa de aproveitamento.
+   */
+  if (
+    err instanceof ShopeeApiError &&
+    (err.code === SHOPEE_ERROR_CODES.NO_API_ACCESS ||
+      err.code === SHOPEE_ERROR_CODES.INVALID_SIGNATURE)
+  ) {
+    return true; // 10035 / 10020
+  }
   const msg = err instanceof Error ? err.message : String(err);
   // Sem classe própria no throttle — a mensagem é o único sinal disponível.
   return /freio de seguran[çc]a|teto di[áa]rio/i.test(msg);

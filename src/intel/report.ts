@@ -74,6 +74,41 @@ function clampInt(v: number | undefined, def: number, min: number, max: number):
 // 1) resumoDiario
 // ---------------------------------------------------------------------------
 
+/**
+ * Espelha o DEFAULT de `INTEL_MATCH_WINDOW_HOURS` (`src/config.ts`) — a
+ * janela (pra trás E pra frente do post, ver `buscarCandidatos` em
+ * `src/intel/match.ts`) que o casador usa para buscar candidato. Usada aqui
+ * só para aproximar, por DIA de calendário, quantos produtos do cardápio
+ * estavam "alcançáveis" pelos posts daquele dia — ver
+ * `taxaAproveitamentoSegura` abaixo e a CTE `obs_janela_por_dia` na consulta
+ * de `resumoDiario`.
+ *
+ * Não importamos `config.ts` neste arquivo de propósito: é só uma
+ * aproximação de qualquer forma (o casador usa a janela exata por POST; este
+ * relatório usa uma janela por DIA de calendário, sempre um pouco mais larga
+ * ou mais estreita conforme a hora do post dentro do dia). Se o dono mudar o
+ * default em `config.ts`, atualizar aqui também.
+ */
+const JANELA_CASAMENTO_HORAS = 72;
+
+/**
+ * `taxaAproveitamento` não tem a garantia estrutural de `taxaCasamento` (em
+ * `coberturaPorGrupo`, onde casados <= posts sempre, pela definição do
+ * próprio JOIN). Aqui numerador e denominador vêm de universos diferentes —
+ * produtos casados naquele dia (que podem ter sido observados dias antes) e
+ * produtos observados numa janela de calendário que só APROXIMA a janela
+ * real de casamento (por POST, não por dia — ver `JANELA_CASAMENTO_HORAS`).
+ * Se a varredura falhar parcialmente num dia, ou o casamento aproveitar uma
+ * observação bem na borda da janela, o resultado ainda pode passar de 100%.
+ *
+ * Um número impossível (ex.: 240%) faz o dono desconfiar do PAINEL INTEIRO;
+ * `null` faz ele desconfiar só desta célula — a troca é deliberada.
+ */
+function taxaAproveitamentoSegura(casadosProdutos: number, observadosJanela: number): number | null {
+  const p = percentual(casadosProdutos, observadosJanela);
+  return p !== null && p > 100 ? null : p;
+}
+
 export interface ResumoDia {
   dia: string; // 'YYYY-MM-DD'
   observadas: number; // ofertas distintas observadas na API naquele dia
@@ -81,7 +116,12 @@ export interface ResumoDia {
   casados: number;
   ambiguos: number;
   semCasamento: number;
-  taxaAproveitamento: number | null; // casados / observadas, em % (0..100)
+  // produtos DISTINTOS casados / produtos DISTINTOS observados na janela de
+  // casamento que TERMINA naquele dia (não só as observações daquele dia —
+  // ver JANELA_CASAMENTO_HORAS), em % (0..100). null quando não dá pra
+  // dividir OU quando o resultado seria > 100 — dado inconsistente, ver
+  // taxaAproveitamentoSegura.
+  taxaAproveitamento: number | null;
   atrasoMedianoSeg: number | null; // mediana de lag_seconds dos casados
   atrasoP25Seg: number | null;
   atrasoP75Seg: number | null;
@@ -94,6 +134,7 @@ interface ResumoDiaRow {
   observadas: string;
   posts: string;
   casados: string;
+  casados_produtos: string; // numerador de taxaAproveitamento (DISTINCT product_id)
   ambiguos: string;
   sem_casamento: string;
   atraso_mediano: string | null;
@@ -101,6 +142,7 @@ interface ResumoDiaRow {
   atraso_p75: string | null;
   postados_dia_seguinte: string;
   would_pass_casados: string;
+  observadas_janela: string; // denominador de taxaAproveitamento (janela terminando no dia)
 }
 
 /**
@@ -118,42 +160,90 @@ interface ResumoDiaRow {
  * de ser exato. Com `bounds`, o resultado é SEMPRE exatamente `dias` linhas,
  * e o filtro de cada CTE usa a MESMA data de corte da série (nunca sobra
  * linha fora da série nem falta linha dentro dela).
+ *
+ * `bounds` também guarda `inicio_ts`/`fim_ts` — os mesmos dois limites de
+ * calendário já convertidos para INSTANTE, uma vez só. Cada CTE abaixo
+ * filtra a coluna de tempo CRUA contra esses dois valores (>= inicio_ts AND
+ * < fim_ts), nunca função sobre a coluna — do contrário idx_api_obs_time e
+ * idx_intel_posts_time não são usados, e com ~11 mil linhas/dia em
+ * api_observations isso é scan completo a cada refresh do painel (que tem
+ * auto-refresh, num Postgres compartilhado com Evolution e n8n na mesma
+ * VPS). Limite superior sempre EXCLUSIVO (dia seguinte), nunca <= hoje.
  */
 export async function resumoDiario(dias?: number): Promise<ResumoDia[]> {
   const d = clampInt(dias, 14, 1, 365);
 
   const rows = await query<ResumoDiaRow>(
-    `WITH bounds AS (
-       SELECT (now() AT TIME ZONE '${TZ}')::date AS hoje,
-              (now() AT TIME ZONE '${TZ}')::date - ($1::int - 1) AS inicio
+    `WITH agora AS (
+       SELECT (now() AT TIME ZONE '${TZ}')::date AS hoje
+     ),
+     bounds AS (
+       -- inicio_ts/fim_ts = inicio/hoje convertidos para INSTANTE (timestamptz)
+       -- uma única vez aqui. Cada CTE abaixo compara a coluna crua de tempo
+       -- contra estes dois valores, sem função na coluna (ver docstring desta
+       -- função). Limite superior sempre EXCLUSIVO (dia seguinte a "hoje").
+       SELECT a.hoje,
+              a.hoje - ($1::int - 1)                                     AS inicio,
+              ((a.hoje - ($1::int - 1))::timestamp AT TIME ZONE '${TZ}') AS inicio_ts,
+              ((a.hoje + 1)::timestamp AT TIME ZONE '${TZ}')             AS fim_ts
+         FROM agora a
      ),
      dias_serie AS (
        SELECT generate_series(b.inicio, b.hoje, interval '1 day')::date AS dia
          FROM bounds b
      ),
-     -- observadas = DISTINCT product_id: o mesmo produto aparece em várias
-     -- varreduras do dia (a cada ~2h); contar sem DISTINCT infla o cardápio.
+     -- observadas = DISTINCT product_id: o mesmo produto aparece em
+     -- várias varreduras do dia (a cada ~2h); contar sem DISTINCT infla
+     -- o cardápio.
      obs_por_dia AS (
        SELECT (ao.observed_at AT TIME ZONE '${TZ}')::date AS dia,
               count(DISTINCT ao.product_id) AS observadas
          FROM api_observations ao
          CROSS JOIN bounds b
-        WHERE (ao.observed_at AT TIME ZONE '${TZ}')::date >= b.inicio
+        WHERE ao.observed_at >= b.inicio_ts
+          AND ao.observed_at <  b.fim_ts
         GROUP BY dia
+     ),
+     -- Denominador de taxaAproveitamento: produtos distintos observados na
+     -- JANELA DE CASAMENTO que TERMINA em cada dia, não só as observações
+     -- daquele dia — espelha a busca de candidatos do matcher (função
+     -- buscarCandidatos, em src/intel/match.ts, janela [posted_at - N
+     -- horas, posted_at + N horas]). O numerador (produtos casados naquele
+     -- dia, CTE matches_por_dia abaixo) inclui casamento com observação de
+     -- dias anteriores; medir o denominador só "naquele dia" comparava
+     -- populações diferentes e deixava a razão passar de 100% sempre que
+     -- isso acontecia. Filtro por instante (sargável) igual a obs_por_dia
+     -- acima — a diferença é que aqui o range é por LINHA de dias_serie
+     -- (ancorado no fim de cada dia), não um único range para a consulta
+     -- inteira como em bounds.
+     obs_janela_por_dia AS (
+       SELECT d.dia,
+              count(DISTINCT ao.product_id) AS observadas_janela
+         FROM dias_serie d
+         JOIN api_observations ao
+           ON ao.observed_at >= ((d.dia + 1)::timestamp AT TIME ZONE '${TZ}')
+                                 - INTERVAL '${JANELA_CASAMENTO_HORAS} hours'
+          AND ao.observed_at <  ((d.dia + 1)::timestamp AT TIME ZONE '${TZ}')
+        GROUP BY d.dia
      ),
      posts_por_dia AS (
        SELECT (ip.posted_at AT TIME ZONE '${TZ}')::date AS dia,
               count(*) AS posts
          FROM intel_posts ip
          CROSS JOIN bounds b
-        WHERE (ip.posted_at AT TIME ZONE '${TZ}')::date >= b.inicio
+        WHERE ip.posted_at >= b.inicio_ts
+          AND ip.posted_at <  b.fim_ts
         GROUP BY dia
      ),
-     -- Agrupado pelo dia do POST (não da observação/match) — é o eixo que o
-     -- dono pensa quando pergunta "o que eles postaram aquele dia".
+     -- Agrupado pelo dia do POST (não da observação/match) — é o eixo que
+     -- o dono pensa quando pergunta "o que eles postaram aquele dia".
      matches_por_dia AS (
        SELECT (ip.posted_at AT TIME ZONE '${TZ}')::date AS dia,
               count(*) FILTER (WHERE m.verdict = 'casado')        AS casados,
+              -- numerador de taxaAproveitamento: PRODUTOS distintos, não
+              -- posts — 5 posts do mesmo produto casado contam 1, não 5.
+              count(DISTINCT m.product_id)
+                FILTER (WHERE m.verdict = 'casado')                AS casados_produtos,
               count(*) FILTER (WHERE m.verdict = 'ambiguo')       AS ambiguos,
               count(*) FILTER (WHERE m.verdict = 'sem_casamento') AS sem_casamento,
               (percentile_cont(0.5) WITHIN GROUP (ORDER BY m.lag_seconds)
@@ -162,7 +252,6 @@ export async function resumoDiario(dias?: number): Promise<ResumoDia[]> {
                 FILTER (WHERE m.verdict = 'casado' AND m.lag_seconds IS NOT NULL))::text AS atraso_p25,
               (percentile_cont(0.75) WITHIN GROUP (ORDER BY m.lag_seconds)
                 FILTER (WHERE m.verdict = 'casado' AND m.lag_seconds IS NOT NULL))::text AS atraso_p75,
-              -- dia do post (fuso do dono) veio DEPOIS do dia da 1ª observação (fuso do dono)
               count(*) FILTER (
                 WHERE m.verdict = 'casado'
                   AND m.first_seen_at IS NOT NULL
@@ -174,24 +263,28 @@ export async function resumoDiario(dias?: number): Promise<ResumoDia[]> {
          JOIN intel_posts ip ON ip.id = m.post_id
          LEFT JOIN api_observations ao ON ao.id = m.observation_id
          CROSS JOIN bounds b
-        WHERE (ip.posted_at AT TIME ZONE '${TZ}')::date >= b.inicio
+        WHERE ip.posted_at >= b.inicio_ts
+          AND ip.posted_at <  b.fim_ts
         GROUP BY dia
      )
      SELECT d.dia::text AS dia,
             coalesce(ob.observadas, 0)             AS observadas,
             coalesce(mp.posts, 0)                  AS posts,
             coalesce(mt.casados, 0)                AS casados,
+            coalesce(mt.casados_produtos, 0)       AS casados_produtos,
             coalesce(mt.ambiguos, 0)               AS ambiguos,
             coalesce(mt.sem_casamento, 0)          AS sem_casamento,
             mt.atraso_mediano,
             mt.atraso_p25,
             mt.atraso_p75,
             coalesce(mt.postados_dia_seguinte, 0)  AS postados_dia_seguinte,
-            coalesce(mt.would_pass_casados, 0)     AS would_pass_casados
+            coalesce(mt.would_pass_casados, 0)     AS would_pass_casados,
+            coalesce(oj.observadas_janela, 0)      AS observadas_janela
        FROM dias_serie d
-       LEFT JOIN obs_por_dia     ob ON ob.dia = d.dia
-       LEFT JOIN posts_por_dia   mp ON mp.dia = d.dia
-       LEFT JOIN matches_por_dia mt ON mt.dia = d.dia
+       LEFT JOIN obs_por_dia        ob ON ob.dia = d.dia
+       LEFT JOIN obs_janela_por_dia oj ON oj.dia = d.dia
+       LEFT JOIN posts_por_dia      mp ON mp.dia = d.dia
+       LEFT JOIN matches_por_dia    mt ON mt.dia = d.dia
       ORDER BY d.dia DESC`,
     [String(d)],
   );
@@ -199,6 +292,8 @@ export async function resumoDiario(dias?: number): Promise<ResumoDia[]> {
   return rows.map((row) => {
     const observadas = toNumOrZero(row.observadas);
     const casados = toNumOrZero(row.casados);
+    const casadosProdutos = toNumOrZero(row.casados_produtos);
+    const observadasJanela = toNumOrZero(row.observadas_janela);
     return {
       dia: row.dia,
       observadas,
@@ -206,7 +301,7 @@ export async function resumoDiario(dias?: number): Promise<ResumoDia[]> {
       casados,
       ambiguos: toNumOrZero(row.ambiguos),
       semCasamento: toNumOrZero(row.sem_casamento),
-      taxaAproveitamento: percentual(casados, observadas),
+      taxaAproveitamento: taxaAproveitamentoSegura(casadosProdutos, observadasJanela),
       atrasoMedianoSeg: toNum(row.atraso_mediano),
       atrasoP25Seg: toNum(row.atraso_p25),
       atrasoP75Seg: toNum(row.atraso_p75),
@@ -311,7 +406,14 @@ export async function correlacaoDoDia(
        JOIN intel_groups ig ON ig.id = ip.group_id
        LEFT JOIN intel_matches m ON m.post_id = ip.id
        LEFT JOIN api_observations ao ON ao.id = m.observation_id
-      WHERE (ip.posted_at AT TIME ZONE '${TZ}')::date = $1::date
+      -- Filtro por INSTANTE (sargável), não por (posted_at AT TIME ZONE tz)
+      -- ::date = $1 — função sobre a coluna impedia o uso de
+      -- idx_intel_posts_time/idx_intel_posts_grupo, e esta rota é chamada
+      -- toda vez que o dono abre um dia no painel. Limite superior sempre
+      -- EXCLUSIVO (dia seguinte), mesma lógica de bounds.fim_ts em
+      -- resumoDiario.
+      WHERE ip.posted_at >= ($1::date::timestamp AT TIME ZONE '${TZ}')
+        AND ip.posted_at <  (($1::date + 1)::timestamp AT TIME ZONE '${TZ}')
         AND ($2::text IS NULL OR coalesce(m.verdict, 'pendente') = $2)
         AND ($3::text IS NULL OR ip.group_id::text = $3)
       ORDER BY ip.posted_at DESC
@@ -528,10 +630,19 @@ interface CoberturaGrupoRow {
 
 /**
  * Uma linha por grupo (ativo ou não — o front decide o que mostrar/filtrar).
- * `ultimoPost` vem de `intel_groups.last_post_at` (mantida pela ingestão),
- * portanto é o último post de SEMPRE, não limitado por `dias` — "esse grupo
- * está mudo?" é uma pergunta que não deveria depender da janela do relatório.
- * As demais métricas (posts/casados/atraso) SÃO limitadas por `dias`.
+ * `ultimoPost` é derivado direto de `intel_posts` (MAX(posted_at) por
+ * grupo), SEM filtro de `dias` — "esse grupo está mudo?" não pode depender
+ * da janela do relatório. As demais métricas (posts/casados/atraso) SÃO
+ * limitadas por `dias`.
+ *
+ * NÃO lemos `intel_groups.last_post_at` aqui de propósito: é um CACHE
+ * mantido só por `ingestPost` (`src/intel/ingest.ts`), pensado para telas de
+ * listagem que não podem pagar um subselect por grupo. Cache e fonte
+ * primária divergem — `ON DELETE CASCADE` em `intel_posts.group_id` apaga
+ * posts sem tocar o cache, dado semeado manualmente não atualiza o cache, um
+ * futuro caminho de ingestão pode esquecer de tocar a coluna — e um
+ * relatório não deveria herdar esse risco. Relatório lê sempre a fonte
+ * primária.
  */
 export async function coberturaPorGrupo(dias?: number): Promise<CoberturaGrupo[]> {
   const d = clampInt(dias, 14, 1, 365);
@@ -544,7 +655,19 @@ export async function coberturaPorGrupo(dias?: number): Promise<CoberturaGrupo[]
             coalesce(p.posts, 0)   AS posts,
             coalesce(p.casados, 0) AS casados,
             p.atraso_mediano       AS atraso_mediano,
-            ig.last_post_at        AS ultimo_post
+            -- ÚLTIMO POST DE SEMPRE, derivado de intel_posts — NÃO usa
+            -- ig.last_post_at (cache mantido só por src/intel/ingest.ts, em
+            -- ingestPost). Duas fontes da mesma verdade divergem: ON DELETE
+            -- CASCADE em intel_posts.group_id apaga posts sem tocar o cache,
+            -- dado semeado manualmente não atualiza o cache, e um futuro
+            -- caminho de ingestão pode esquecer de tocar a coluna — o cache
+            -- fica bom só para telas de LISTAGEM, nunca para relatório. SEM
+            -- filtro de dias de propósito: "esse grupo está mudo?" não pode
+            -- sumir só porque o último post foi há 20 dias e a janela pedida
+            -- é 14.
+            (SELECT max(ip2.posted_at)
+               FROM intel_posts ip2
+              WHERE ip2.group_id = ig.id) AS ultimo_post
        FROM intel_groups ig
        LEFT JOIN (
          SELECT ip.group_id AS group_id,
