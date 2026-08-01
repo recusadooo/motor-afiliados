@@ -236,6 +236,23 @@ const schema = z.object({
   INTEL_MATCH_PRICE_TOLERANCE: num(0.15),
   // Janela de busca para trás: um post de hoje procura observações até N horas antes.
   INTEL_MATCH_WINDOW_HOURS: int(72),
+  /*
+   * PISO DE CONFIANÇA — separado do limiar de título, e a distinção importa.
+   *
+   * `INTEL_MATCH_MIN_SIM` decide se o TÍTULO é parecido o bastante. Este aqui
+   * decide se, DEPOIS de considerar o preço, o par ainda é plausível. Ter os
+   * dois evita os dois erros opostos:
+   *
+   *  - usar o limiar de título também na confiança fazia o preço virar VETO
+   *    (post SEM preço legível casava mais fácil que post com preço);
+   *  - não ter piso nenhum deixava passar `casado` com confiança 0.02 — título
+   *    0.32 com preço 12.800% diferente, que é evidentemente outro produto.
+   *
+   * 0.15 é bem abaixo do limiar de título (0.30): só corta o absurdo, não o
+   * meramente diferente.
+   */
+  INTEL_MATCH_MIN_CONFIDENCE: num(0.15),
+
   // Margem entre o melhor e o 2º melhor candidato. Se a diferença for menor que
   // isso, o veredito é 'ambiguo' em vez de escolher no par ou ímpar.
   INTEL_MATCH_AMBIGUITY_MARGIN: num(0.06),

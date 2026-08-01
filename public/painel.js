@@ -368,6 +368,14 @@ async function desenharTravessia(dia) {
      linha longa e rasa até o post é justamente o desenho de "eles esperaram
      virar o dia". Sem isso ela sairia do eixo e o par sumiria. */
   const antesDoDia = (iso) => diaTZ(iso) < dia;
+  /* Espelho do anterior, e ele existe porque a janela de busca virou simétrica:
+     agora a primeira observação PODE ser posterior ao post (eles postaram antes
+     de a gente ver — lag negativo, que é informação valiosa). Sem ancorar na
+     borda direita, o tick caía no minuto do dia SEGUINTE e o conector desenhava
+     uma diagonal longa afirmando ~23h de atraso quando a verdade é −40min.
+     Como a INCLINAÇÃO é o elemento-assinatura, era afirmação confiante e
+     invertida. */
+  const depoisDoDia = (iso) => diaTZ(iso) > dia;
 
   const partes = [];
 
@@ -404,32 +412,51 @@ async function desenharTravessia(dia) {
     const mObs = minutosDe(l.firstSeenAt);
     const mPost = minutosDe(l.postedAt);
     if (mObs == null || mPost == null) return; // linha sem hora utilizável: pula
-    const xo = x(antesDoDia(l.firstSeenAt) ? 0 : mObs);
+    const xo = antesDoDia(l.firstSeenAt) ? x(0) : depoisDoDia(l.firstSeenAt) ? x(1440) : x(mObs);
     const xp = x(mPost);
     const rotulo = `${l.titleGuess || l.obsTitle || 'oferta'} · atraso ${duracao(l.lagSeconds)}`;
     partes.push(`<line class="tick-nos" x1="${xo}" y1="${TOPO - 7}" x2="${xo}" y2="${TOPO + 7}"/>`);
     partes.push(`<line class="tick-eles" x1="${xp}" y1="${BASE - 7}" x2="${xp}" y2="${BASE + 7}"/>`);
-    partes.push(`<line class="conector${i < 60 ? ' desenha' : ''}" x1="${xo}" y1="${TOPO + 7}" x2="${xp}" y2="${BASE - 7}" style="animation-delay:${Math.min(i * 12, 700)}ms"><title>${esc(rotulo)}</title></line>`);
+    // Lag negativo = eles se anteciparam a nós. Traço distinto para não ser
+    // lido como "atraso curto", que é o oposto do que aconteceu.
+    const antecipou = l.lagSeconds != null && l.lagSeconds < 0;
+    partes.push(`<line class="conector${antecipou ? ' antecipou' : ''}${i < 60 ? ' desenha' : ''}" x1="${xo}" y1="${TOPO + 7}" x2="${xp}" y2="${BASE - 7}" style="animation-delay:${Math.min(i * 12, 700)}ms"><title>${esc(rotulo)}</title></line>`);
   });
 
-  // posts sem casamento: tick tracejado, sem conector — a ausência é o dado
+  /* Os NÃO-casados não são todos a mesma coisa, e juntá-los num tick só
+     desfaria o conserto que separou "outra loja" de "não achamos":
+       outra_plataforma -> post de Amazon/ML: não havia o que achar
+       ambiguo          -> achamos DOIS candidatos bons demais
+       sem_casamento    -> não achamos (com ou sem quase-acerto) */
+  const ROTULO_TICK = {
+    outra_plataforma: 'outra loja — não há o que casar na Shopee',
+    ambiguo: 'ambígua — dois candidatos bons demais',
+    nao_observado: 'produto existe, mas nossa varredura não viu',
+  };
   (linhas || []).filter((l) => l.verdict !== 'casado').forEach((l) => {
     const mPost = minutosDe(l.postedAt);
     if (mPost == null) return;
     const xp = x(mPost);
     const quase = l.titleSim != null ? ` · quase acertou (${(Number(l.titleSim) * 100).toFixed(0)}%)` : '';
-    partes.push(`<line class="tick-eles solto" x1="${xp}" y1="${BASE - 5}" x2="${xp}" y2="${BASE + 5}"><title>${esc(l.titleGuess || 'post')} · sem casamento na API${quase}</title></line>`);
+    const motivo = ROTULO_TICK[l.verdict] || 'sem casamento na API';
+    const classe = l.verdict === 'outra_plataforma' ? 'tick-eles outra-loja' : 'tick-eles solto';
+    partes.push(`<line class="${classe}" x1="${xp}" y1="${BASE - 5}" x2="${xp}" y2="${BASE + 5}"><title>${esc(l.titleGuess || 'post')} · ${motivo}${quase}</title></line>`);
   });
 
   $('travessia').innerHTML = `<svg viewBox="0 0 1000 190" role="img"
       aria-label="Linha do tempo do dia: ofertas observadas na API em cima, posts dos grupos embaixo, ligados pelo atraso">
       ${partes.join('')}</svg>`;
 
+  // Denominador honesto: post de Amazon/ML nunca poderia casar contra a API da
+  // Shopee, então contá-lo em "N de M casados" deprime a taxa artificialmente.
+  const foraDaPlataforma = (linhas || []).filter((l) => l.verdict === 'outra_plataforma').length;
+  const elegiveis = (linhas || []).length - foraDaPlataforma;
   $('travessia-legenda').innerHTML = `
     <span><i style="background:var(--nos)"></i> oferta que a API tinha</span>
     <span><i style="background:var(--eles)"></i> post do grupo</span>
     <span><i style="background:var(--eles);opacity:.5"></i> post sem casamento</span>
-    <span>${casadas.length} de ${linhas.length} posts casados · inclinação = atraso</span>`;
+    <span><i style="background:var(--eles);opacity:.35"></i> outra loja (Amazon/ML)</span>
+    <span>${casadas.length} de ${elegiveis} posts de Shopee casados${foraDaPlataforma ? ` · ${foraDaPlataforma} de outra loja` : ''} · inclinação = atraso</span>`;
 }
 
 async function carregarIntelPlacar(dias, dia) {

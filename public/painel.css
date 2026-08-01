@@ -468,3 +468,10 @@ tr:hover td { background: rgba(255, 255, 255, 0.02); }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* Conector de lag NEGATIVO: eles se anteciparam a nós. Tracejado para não ser
+   lido como "atraso curto", que é o oposto do que o dado diz. */
+.travessia .conector.antecipou { stroke: var(--entrada); stroke-dasharray: 3 3; opacity: 0.75; }
+/* Post de outra loja: presente na linha do tempo, mas visivelmente fora do
+   jogo — nunca poderia casar contra a API da Shopee. */
+.travessia .tick-eles.outra-loja { opacity: 0.35; stroke-width: 2; }

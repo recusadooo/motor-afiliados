@@ -87,6 +87,22 @@ function arredondar(v: number, casas: number): number {
 // quem for ajustar: a curva é CONTÍNUA na fronteira da tolerância (o bônus
 // chega a 0 exatamente onde a penalidade começa a subir de 0) — não há
 // degrau ali. A penalidade satura em 2x a tolerância (100% de estouro).
+/*
+ * PISO DE RUÍDO do candidato. Abaixo disto não é "quase acertou", é
+ * coincidência de palavra comum — 0.196 foi a medição do falso-positivo mais
+ * perigoso (mesma categoria, marca diferente: "Air Fryer Philips" contra
+ * "Air Fryer Mondial").
+ *
+ * É ELE que filtra a busca, NÃO o `INTEL_MATCH_MIN_SIM`. A distinção é o
+ * conserto de um gol contra: quando a busca filtrava por MIN_SIM, nenhum
+ * candidato abaixo dele chegava ao código, e a preservação do quase-acerto
+ * (que existe justamente para a faixa PISO..MIN_SIM) virava inalcançável —
+ * `sem_casamento` com candidato a 0.29 voltava a ser idêntico a
+ * `sem_casamento` sem candidato nenhum, que é a confusão que este módulo
+ * inteiro existe para evitar.
+ */
+const PISO_QUASE_ACERTO = 0.2;
+
 const BONUS_PRECO_MAX = 0.25;
 const PENALIDADE_PRECO_MAX = 0.3;
 
@@ -263,7 +279,10 @@ const LIMITE_CANDIDATOS_DEGRADADO = 500;
 async function buscarCandidatos(post: PostRow, cfg: Config): Promise<CandidatoAvaliado[]> {
   const janelaHoras = String(cfg.INTEL_MATCH_WINDOW_HOURS);
   const tolerancia = cfg.INTEL_MATCH_PRICE_TOLERANCE;
-  const minSim = cfg.INTEL_MATCH_MIN_SIM;
+  // Busca pelo PISO DE RUÍDO: a faixa entre o piso e o MIN_SIM é o
+  // "quase acertou", que precisa CHEGAR ao código para poder ser preservada.
+  // A decisão casado/sem_casamento acontece depois, em memória.
+  const minSim = PISO_QUASE_ACERTO;
   const postPrice = toNum(post.price);
   const titleNorm = post.title_norm ?? ''; // já validado não-vazio pelo chamador
 
@@ -290,9 +309,14 @@ async function buscarCandidatos(post: PostRow, cfg: Config): Promise<CandidatoAv
               AND observed_at >= $2::timestamptz - ($3 || ' hours')::interval
               AND observed_at <= $2::timestamptz + ($3 || ' hours')::interval
               AND similarity(title_norm, $1) >= $4
+            -- Prefere a observação anterior mais próxima; quando não existe
+            -- nenhuma anterior (caso que a janela simétrica abriu), pega a
+            -- posterior mais PRÓXIMA. Ordenar só por observed_at DESC pegava
+            -- a mais DISTANTE no futuro, até +72h — e é essa linha que decide
+            -- o preço da nota e a fotografia congelada.
             ORDER BY product_id,
                      (observed_at <= $2::timestamptz) DESC,
-                     observed_at DESC
+                     abs(extract(epoch FROM (observed_at - $2::timestamptz))) ASC
          ) d
         ORDER BY sim DESC
         LIMIT ${LIMITE_CANDIDATOS_TRGM}`,
@@ -324,9 +348,11 @@ async function buscarCandidatos(post: PostRow, cfg: Config): Promise<CandidatoAv
       WHERE platform = 'shopee'
         AND observed_at >= $1::timestamptz - ($2 || ' hours')::interval
         AND observed_at <= $1::timestamptz + ($2 || ' hours')::interval
+      -- Mesmo desempate do caminho com pg_trgm: anterior mais próxima e,
+      -- na falta dela, a posterior mais próxima.
       ORDER BY product_id,
                (observed_at <= $1::timestamptz) DESC,
-               observed_at DESC
+               abs(extract(epoch FROM (observed_at - $1::timestamptz))) ASC
       LIMIT ${LIMITE_CANDIDATOS_DEGRADADO}`,
     [post.posted_at, janelaHoras],
   );
@@ -436,13 +462,21 @@ async function gravarMatch(p: GravarParams): Promise<void> {
          lag_seconds     = EXCLUDED.lag_seconds,
          first_seen_at   = EXCLUDED.first_seen_at,
          verdict         = EXCLUDED.verdict,
-         obs_title          = EXCLUDED.obs_title,
-         obs_price          = EXCLUDED.obs_price,
-         obs_commission_brl = EXCLUDED.obs_commission_brl,
-         obs_sales          = EXCLUDED.obs_sales,
-         obs_rating_star    = EXCLUDED.obs_rating_star,
-         obs_would_pass     = EXCLUDED.obs_would_pass,
-         obs_reject_reason  = EXCLUDED.obs_reject_reason,
+         -- COALESCE, não sobrescrita: a fotografia só é substituída por uma
+         -- fotografia NOVA, nunca apagada por um NULL.
+         --
+         -- Sem isso, "recorrelacionar tudo" num post cuja observação já foi
+         -- podada (90 dias) rebaixava o veredito para sem_casamento E apagava
+         -- o título e o preço congelados — exatamente a reescrita do passado
+         -- que estas colunas existem para impedir. O botão de recalibrar o
+         -- limiar destruiria o histórico que ele deveria só reinterpretar.
+         obs_title          = COALESCE(EXCLUDED.obs_title,          intel_matches.obs_title),
+         obs_price          = COALESCE(EXCLUDED.obs_price,          intel_matches.obs_price),
+         obs_commission_brl = COALESCE(EXCLUDED.obs_commission_brl, intel_matches.obs_commission_brl),
+         obs_sales          = COALESCE(EXCLUDED.obs_sales,          intel_matches.obs_sales),
+         obs_rating_star    = COALESCE(EXCLUDED.obs_rating_star,    intel_matches.obs_rating_star),
+         obs_would_pass     = COALESCE(EXCLUDED.obs_would_pass,     intel_matches.obs_would_pass),
+         obs_reject_reason  = COALESCE(EXCLUDED.obs_reject_reason,  intel_matches.obs_reject_reason),
          -- IS DISTINCT FROM (não <>) de propósito: <> com um lado NULL
          -- devolve NULL, e o CASE trata condição NULL como "não bateu" —
          -- cairia no ELSE bem quando o par se perde (observação antiga ->
@@ -489,7 +523,6 @@ function paraMatchResult(p: GravarParams): MatchResult {
 // 0.196. Abaixo disso não é "quase bateu", é coincidência de palavras
 // comuns ("air fryer" aparece nos dois títulos por acaso de categoria, não
 // porque é o mesmo produto).
-const PISO_QUASE_ACERTO = 0.2;
 
 /**
  * sem_casamento tem duas formas:
@@ -642,7 +675,15 @@ export async function matchOnePost(postId: string): Promise<MatchResult> {
    * O preço continua pesando no RANQUEAMENTO (a ordenação por confiança
    * escolhe qual candidato vence) — só não elimina mais ninguém sozinho.
    */
-  if (!melhor || melhor.titleSim < cfg.INTEL_MATCH_MIN_SIM) {
+  if (
+    !melhor ||
+    melhor.titleSim < cfg.INTEL_MATCH_MIN_SIM ||
+    // Piso SEPARADO (0.15, bem abaixo do limiar de título): sem ele, tirar o
+    // veto de preço deixou passar `casado` com confiança 0.02 — título 0.32
+    // com preço 12.800% diferente. O post-veneno que o clamp salvou de
+    // derrubar a transação voltava como um casamento afirmado.
+    melhor.confidence < cfg.INTEL_MATCH_MIN_CONFIDENCE
+  ) {
     // `melhor` pode não existir (nenhuma observação plausível na janela) ou
     // existir mas não bater o limiar — semCasamento decide sozinho se o
     // quase-acerto passa do piso de ruído e vale preservar.

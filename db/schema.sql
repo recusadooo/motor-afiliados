@@ -344,8 +344,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_intel_posts_wamid
   ON intel_posts (group_id, wa_message_id)
   WHERE wa_message_id IS NOT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_intel_posts_hash_dia
-  ON intel_posts (group_id, message_hash, ((posted_at AT TIME ZONE 'America/Sao_Paulo')::date));
+/*
+ * GUARDADO de propósito, mesmo funcionando hoje.
+ *
+ * Este índice usa `(posted_at AT TIME ZONE 'America/Sao_Paulo')::date` numa
+ * expressão de índice, o que exige que a função seja IMMUTABLE. Verificado no
+ * Postgres 16 deste servidor: `timezone(text, timestamptz)` é IMMUTABLE e o
+ * índice é criado sem reclamar.
+ *
+ * O guard existe porque a consequência de um dia isso mudar é
+ * desproporcional: `migrate.ts` manda ESTE ARQUIVO INTEIRO numa única query,
+ * que o Postgres roda em transação implícita. Uma falha aqui faria rollback do
+ * schema TODO, 30 vezes, e o worker morreria em crash loop — não só a
+ * inteligência: o motor inteiro. Degradar (perder a trava de dia, mantendo a
+ * de `wa_message_id`) é infinitamente melhor que não subir.
+ */
+DO $intel$
+BEGIN
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_intel_posts_hash_dia
+    ON intel_posts (group_id, message_hash, ((posted_at AT TIME ZONE 'America/Sao_Paulo')::date));
+EXCEPTION WHEN invalid_object_definition OR feature_not_supported THEN
+  RAISE NOTICE 'uq_intel_posts_hash_dia nao criado (expressao nao imutavel neste servidor) — a dedupe fica so por wa_message_id';
+END
+$intel$;
 CREATE INDEX IF NOT EXISTS idx_intel_posts_time    ON intel_posts (posted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_intel_posts_pending ON intel_posts (matched_at) WHERE matched_at IS NULL;
 -- O Postgres NÃO cria índice para chave estrangeira sozinho, e a cobertura por
