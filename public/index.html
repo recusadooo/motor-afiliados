@@ -7,170 +7,28 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-  :root{
-    --void:#0E1116;--panel:#161B22;--panel2:#1B222B;--line:#2A333F;--line2:#3A4552;
-    --ink:#E9EFF5;--ink2:#AEBAC6;--ink3:#7C8896;
-    --signal:#F5A524;--ok:#25D07B;--danger:#F0503A;--warn:#E3B341;--cool:#3B9EFF;
-    --display:"Bricolage Grotesque","IBM Plex Sans",system-ui,sans-serif;
-    --body:"IBM Plex Sans",system-ui,Segoe UI,Roboto,sans-serif;
-    --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
-  }
-  *{box-sizing:border-box}
-  html{scroll-behavior:smooth}
-  body{margin:0;background:var(--void);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55}
-  .mono{font-family:var(--mono)}
-  a{color:var(--signal)}
-  :focus-visible{outline:2px solid var(--signal);outline-offset:2px}
-
-  /* ---------- barra de topo ---------- */
-  header{position:sticky;top:0;z-index:20;background:rgba(12,15,20,.9);backdrop-filter:blur(12px);
-    border-bottom:1px solid var(--line);padding:12px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-  header .marca{font-family:var(--mono);font-size:13px;letter-spacing:.06em;font-weight:600}
-  .led{width:9px;height:9px;border-radius:50%;background:var(--signal);box-shadow:0 0 10px rgba(245,165,36,.7)}
-  .led.off{background:var(--danger);box-shadow:0 0 10px rgba(240,80,58,.6)}
-  header .sep{width:1px;height:18px;background:var(--line)}
-  header .estado{font-family:var(--mono);font-size:12px;color:var(--ink3)}
-  header .direita{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-
-  nav{border-bottom:1px solid var(--line);background:var(--void);position:sticky;top:53px;z-index:15}
-  nav .interno{max-width:1180px;margin:0 auto;padding:0 20px;display:flex;gap:2px;overflow-x:auto}
-  nav a{font-family:var(--mono);font-size:12.5px;letter-spacing:.04em;text-transform:uppercase;
-    color:var(--ink3);text-decoration:none;padding:13px 14px;border-bottom:2px solid transparent;white-space:nowrap}
-  nav a:hover{color:var(--ink2)}
-  nav a.ativa{color:var(--ink);border-bottom-color:var(--signal)}
-
-  .wrap{max-width:1180px;margin:0 auto;padding:24px 20px 60px}
-  .secao{display:none}.secao.ativa{display:block}
-  h1{font-family:var(--display);font-size:clamp(26px,4vw,38px);font-weight:800;letter-spacing:-.02em;margin:6px 0 4px;line-height:1.05}
-  .sub{color:var(--ink3);font-size:14px;margin-bottom:22px;max-width:64ch}
-  h2{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);
-    margin:30px 0 12px;display:flex;align-items:center;gap:10px}
-  h2::after{content:"";flex:1;height:1px;background:var(--line)}
-  h3{font-family:var(--display);font-size:18px;font-weight:600;margin:0 0 10px}
-
-  /* ---------- O FUNIL: elemento-assinatura ---------- */
-  /* Encodifica o fluxo real do motor: o que entrou, o que foi cortado e o que
-     sobrou. A largura de cada faixa é proporcional ao número, então o corte é
-     visível antes de ler o número. */
-  .funil{border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,var(--panel),#12171E);padding:18px;overflow:hidden}
-  .funil .trilha{display:flex;align-items:stretch;gap:3px;height:64px}
-  .funil .faixa{position:relative;border-radius:8px;padding:10px 12px;min-width:74px;overflow:hidden;
-    border:1px solid var(--line2);display:flex;flex-direction:column;justify-content:space-between;transition:flex-grow .5s ease}
-  .funil .faixa .n{font-family:var(--display);font-size:24px;font-weight:800;line-height:1}
-  .funil .faixa .r{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3)}
-  .faixa.entrada{background:rgba(59,158,255,.10);border-color:rgba(59,158,255,.35)}
-  .faixa.entrada .n{color:var(--cool)}
-  .faixa.corte{background:rgba(240,80,58,.09);border-color:rgba(240,80,58,.3)}
-  .faixa.corte .n{color:#ff8a76}
-  .faixa.saida{background:rgba(245,165,36,.12);border-color:rgba(245,165,36,.45)}
-  .faixa.saida .n{color:var(--signal)}
-  .faixa.enviado{background:rgba(37,208,123,.10);border-color:rgba(37,208,123,.35)}
-  .faixa.enviado .n{color:var(--ok)}
-  .funil .legenda{font-family:var(--mono);font-size:11.5px;color:var(--ink3);margin-top:12px}
-  .motivos{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
-  .motivo{font-family:var(--mono);font-size:11px;padding:4px 9px;border-radius:6px;border:1px solid var(--line);
-    background:var(--panel2);color:var(--ink2)}
-  .motivo b{color:#ff8a76;font-weight:600}
-
-  /* ---------- cartões e números ---------- */
-  .placar{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin-top:14px}
-  .placa{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
-  .placa .n{font-family:var(--display);font-size:27px;font-weight:800;color:var(--ink);line-height:1}
-  .placa .l{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--ink3);margin-top:7px;text-transform:uppercase}
-  .placa.destaque .n{color:var(--signal)}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
-  .chips{display:flex;gap:8px;flex-wrap:wrap}
-  .chip{font-family:var(--mono);font-size:11.5px;padding:5px 10px;border-radius:7px;border:1px solid var(--line);
-    display:inline-flex;gap:7px;align-items:center;background:var(--panel)}
-  .dot{width:8px;height:8px;border-radius:50%;flex:none}
-
-  /* ---------- filtros do feed ---------- */
-  .filtros{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:16px}
-  .filtros .grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
-  .filtros .acoes{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center}
-  label{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
-    color:var(--ink3);margin:0 0 5px}
-  input,select{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--ink);
-    font-family:var(--body);font-size:14px;padding:9px 11px}
-  input:focus,select:focus{outline:none;border-color:var(--signal)}
-  .alternar{display:flex;gap:8px;flex-wrap:wrap}
-  .pilula{font-family:var(--mono);font-size:12px;padding:7px 13px;border-radius:20px;border:1px solid var(--line);
-    background:var(--panel2);color:var(--ink2);cursor:pointer}
-  .pilula[aria-pressed="true"]{border-color:var(--signal);color:var(--ink);background:rgba(245,165,36,.12)}
-  .btn{font-family:var(--mono);font-size:12.5px;border:0;border-radius:8px;padding:9px 14px;cursor:pointer;
-    background:var(--signal);color:#1a1206;font-weight:600}
-  .btn.fantasma{background:transparent;color:var(--ink2);border:1px solid var(--line)}
-  .btn.fantasma:hover{border-color:var(--line2);color:var(--ink)}
-  .btn.perigo{background:var(--panel2);color:var(--ink2);border:1px solid var(--line)}
-  .btn.perigo:hover{border-color:var(--danger);color:#ff8a76}
-  .btn.pequeno{font-size:11.5px;padding:6px 10px}
-  .btn:disabled{opacity:.5;cursor:progress}
-
-  /* ---------- oferta ---------- */
-  .oferta{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;gap:14px;
-    margin-bottom:10px;align-items:flex-start}
-  .oferta:hover{border-color:var(--line2)}
-  .oferta img{width:74px;height:74px;border-radius:10px;object-fit:cover;background:var(--panel2);flex:none}
-  .oferta .corpo{flex:1;min-width:0}
-  .oferta .titulo{font-weight:600;font-size:15px;line-height:1.3}
-  /* preço: o antigo MONITORADO ao lado do atual — é o ponto do painel */
-  .precos{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-top:8px}
-  .agora{font-family:var(--display);font-size:23px;font-weight:800;color:var(--ink);line-height:1}
-  .antes{font-family:var(--mono);font-size:13px;color:var(--ink3);text-decoration:line-through}
-  .queda{font-family:var(--mono);font-size:11.5px;padding:3px 8px;border-radius:6px;background:rgba(37,208,123,.14);color:var(--ok)}
-  .monitorando{font-family:var(--mono);font-size:11.5px;color:var(--ink3)}
-  .linha-meta{font-family:var(--mono);font-size:11.5px;color:var(--ink3);margin-top:7px;display:flex;gap:12px;flex-wrap:wrap}
-  .linha-meta b{color:var(--ink2);font-weight:500}
-  .copy{font-size:13px;color:var(--ink2);margin-top:9px;white-space:pre-wrap;max-height:78px;overflow:hidden;
-    border-left:2px solid var(--line);padding-left:10px}
-  .etiqueta{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:5px;background:rgba(245,165,36,.15);
-    color:var(--signal);margin-left:6px;vertical-align:middle;letter-spacing:.04em}
-  .etiqueta.frio{background:rgba(59,158,255,.14);color:var(--cool)}
-  .etiqueta.ruim{background:rgba(240,80,58,.14);color:#ff8a76}
-  .acoes-oferta{display:flex;flex-direction:column;gap:6px;flex:none}
-
-  .vazio{color:var(--ink3);font-family:var(--mono);font-size:13px;padding:22px;text-align:center;
-    border:1px dashed var(--line);border-radius:12px}
-  .nota{font-size:12.5px;color:var(--ink3);margin-top:7px}
-  .ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--danger)}
-  .qr{text-align:center;margin-top:14px}.qr img{width:230px;height:230px;background:#fff;border-radius:10px;padding:8px}
-  .lista-grupos{max-height:230px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:6px;margin-top:8px}
-  .grp{display:flex;gap:9px;align-items:center;padding:7px 8px;border-radius:6px;font-size:14px;cursor:pointer}
-  .grp:hover{background:var(--panel2)}
-  .grp input{width:auto;accent-color:var(--signal)}
-  .linha{display:flex;gap:10px;flex-wrap:wrap}.linha>*{flex:1;min-width:150px}
-  table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px}
-  th{text-align:left;color:var(--ink3);font-weight:500;letter-spacing:.06em;text-transform:uppercase;font-size:10.5px;
-    padding:8px 10px;border-bottom:1px solid var(--line)}
-  td{padding:9px 10px;border-bottom:1px solid var(--line);color:var(--ink2);vertical-align:top}
-  tr:hover td{background:var(--panel2)}
-  .rolagem{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
-  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
-  @media (max-width:640px){
-    .funil .trilha{height:auto;flex-direction:column}
-    .oferta{flex-wrap:wrap}
-    nav{top:auto;position:static}
-  }
-</style>
+<link rel="stylesheet" href="/painel.css">
 </head>
 <body>
+
 <header>
   <span class="led" id="led"></span>
   <span class="marca">MOTOR::AFILIADO</span>
   <span class="sep"></span>
   <span class="estado" id="estado-api">verificando…</span>
   <span class="direita">
-    <button class="btn pequeno" id="btn-buscar" onclick="buscarAgora()">buscar ofertas agora</button>
-    <button class="btn pequeno fantasma" onclick="recarregar()">↻ atualizar</button>
-    <button class="btn pequeno fantasma" onclick="sair()">sair</button>
+    <button class="btn pequeno" id="btn-buscar">buscar ofertas agora</button>
+    <button class="btn pequeno fantasma" id="btn-atualizar">↻ atualizar</button>
+    <button class="btn pequeno fantasma" id="btn-sair">sair</button>
   </span>
 </header>
 
 <nav><div class="interno">
   <a href="/" data-secao="visao">Visão geral</a>
   <a href="/feed" data-secao="feed">Feed</a>
-  <a href="/ciclos" data-secao="ciclos">Ciclos de captura</a>
+  <a href="/ciclos" data-secao="ciclos">Ciclos</a>
+  <a href="/inteligencia" data-secao="inteligencia">Inteligência</a>
+  <a href="/grupos" data-secao="grupos">Grupos observados</a>
   <a href="/conexoes" data-secao="conexoes">Conexões</a>
   <a href="/config" data-secao="config">Config</a>
   <a href="/falhas" data-secao="falhas">Falhas</a>
@@ -180,24 +38,24 @@
 
   <!-- ============ VISÃO GERAL ============ -->
   <section class="secao ativa" id="secao-visao">
-    <h1>O funil de hoje</h1>
-    <p class="sub">Quantas ofertas a Shopee devolveu, quantas o filtro cortou e quantas sobraram para o grupo.
-      O corte é o trabalho: entra muito, sai pouco.</p>
+    <h1 class="t-pagina">O funil de hoje</h1>
+    <p class="sub">Quantas ofertas a Shopee devolveu, quantas o filtro cortou e quantas sobraram
+      para o grupo. O corte é o trabalho: entra muito, sai pouco.</p>
 
-    <div class="funil" id="funil"><div class="vazio">carregando o funil…</div></div>
+    <div class="funil" id="funil"><div class="vazio"><h3>Carregando o funil…</h3></div></div>
 
-    <h2>fila e envio</h2>
+    <h2 class="secao-titulo">fila e envio</h2>
     <div class="placar" id="placar"></div>
 
-    <h2>números conectados</h2>
-    <div class="chips" id="canais-chips"></div>
+    <h2 class="secao-titulo">números conectados</h2>
+    <div id="canais-chips"></div>
   </section>
 
   <!-- ============ FEED ============ -->
   <section class="secao" id="secao-feed">
-    <h1>Feed de ofertas</h1>
-    <p class="sub">Tudo que o motor capturou, com o preço que ele mesmo monitorou. Use os filtros para achar
-      o que interessa — e para entender o que está sendo cortado.</p>
+    <h1 class="t-pagina">Feed de ofertas</h1>
+    <p class="sub">Tudo que o motor capturou, com o preço que ele mesmo monitorou. Use os filtros
+      para achar o que interessa — e para entender o que está sendo cortado.</p>
 
     <div class="filtros">
       <div class="alternar" id="f-status" style="margin-bottom:12px">
@@ -205,6 +63,7 @@
         <button class="pilula" aria-pressed="false" data-status="pending">Aguardando</button>
         <button class="pilula" aria-pressed="false" data-status="sent">Enviadas</button>
         <button class="pilula" aria-pressed="false" data-status="rejected">Rejeitadas</button>
+        <button class="pilula" aria-pressed="false" data-status="expired">Vencidas</button>
         <button class="pilula" aria-pressed="false" data-status="all">Todas</button>
       </div>
       <div class="grade">
@@ -225,39 +84,148 @@
       <div class="acoes">
         <button class="pilula" id="f-prio" aria-pressed="false">só fura-fila</button>
         <button class="pilula" id="f-real" aria-pressed="false">só com desconto medido</button>
-        <button class="btn pequeno" onclick="aplicarFiltros()">aplicar</button>
-        <button class="btn pequeno fantasma" onclick="limparFiltros()">limpar</button>
+        <button class="btn pequeno" id="btn-aplicar">aplicar</button>
+        <button class="btn pequeno fantasma" id="btn-limpar-filtros">limpar</button>
         <span class="nota" id="f-resumo" style="margin:0 0 0 auto"></span>
       </div>
     </div>
 
-    <div id="ofertas"><div class="vazio">carregando…</div></div>
+    <div class="poco" id="ofertas"><div class="vazio"><h3>Carregando…</h3></div></div>
   </section>
 
   <!-- ============ CICLOS ============ -->
   <section class="secao" id="secao-ciclos">
-    <h1>Ciclos de captura</h1>
-    <p class="sub">Cada linha é uma rodada do motor. Serve para responder "por que o feed está assim" — e para
-      ver se a busca está trazendo lixo.</p>
-    <div class="acoes" style="margin-bottom:14px">
-      <button class="btn" onclick="buscarAgora()">rodar um ciclo agora</button>
-      <button class="btn fantasma" onclick="limparFeed()">limpar o feed (mantém o histórico de preço)</button>
+    <h1 class="t-pagina">Ciclos de captura</h1>
+    <p class="sub">Cada linha é uma rodada do motor. Responde "por que o feed está assim" — e mostra
+      se a busca está trazendo lixo.</p>
+    <div class="acoes" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      <button class="btn" id="btn-ciclo-agora">rodar um ciclo agora</button>
+      <button class="btn fantasma" id="btn-limpar-feed">limpar o feed (mantém o histórico de preço)</button>
     </div>
-    <div id="ciclos"><div class="vazio">carregando…</div></div>
-    <h2>amostra do que foi cortado no último ciclo</h2>
-    <div id="amostras"><div class="vazio">—</div></div>
+    <div id="ciclos"><div class="vazio"><h3>Carregando…</h3></div></div>
+    <h2 class="secao-titulo">amostra do que foi cortado no último ciclo</h2>
+    <div id="amostras"></div>
+  </section>
+
+  <!-- ============ INTELIGÊNCIA ============ -->
+  <section class="secao" id="secao-inteligencia">
+    <h1 class="t-pagina">Da API para o grupo</h1>
+    <p class="sub">A pergunta: de tudo que a Shopee ofereceu, o que os concorrentes escolheram
+      postar — e quanto tempo depois. O trilho de cima é o cardápio; o de baixo, o que eles
+      postaram. Cada linha ligando os dois é o atraso.</p>
+
+    <div class="acoes" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:16px">
+      <div style="max-width:180px"><label for="i-dia">Dia</label><input id="i-dia" type="date" /></div>
+      <div style="max-width:150px"><label for="i-dias">Janela da análise</label><select id="i-dias">
+        <option value="7">7 dias</option>
+        <option value="14" selected>14 dias</option>
+        <option value="30">30 dias</option>
+        <option value="90">90 dias</option>
+      </select></div>
+      <button class="btn fantasma pequeno" id="btn-varredura">varrer a API agora</button>
+      <button class="btn fantasma pequeno" id="btn-recorrelacionar">recorrelacionar</button>
+    </div>
+
+    <div class="travessia" id="travessia"><div class="vazio"><h3>Carregando…</h3></div></div>
+    <div class="legenda-cores" id="travessia-legenda"></div>
+
+    <h2 class="secao-titulo">o dia em números</h2>
+    <div class="placar" id="intel-placar"></div>
+
+    <h2 class="secao-titulo">o que eles escolhem — perfil comparado ao cardápio</h2>
+    <div class="painel">
+      <p class="nota" style="margin:0 0 14px">Cada linha compara a mediana do que a API ofereceu
+        (azul) com a mediana do que eles postaram (magenta). A distância entre os pontos é o
+        critério deles: quanto maior, mais aquela métrica pesa na escolha.</p>
+      <div class="dumbbell" id="perfil"></div>
+    </div>
+
+    <h2 class="secao-titulo">repetição — eles usam lista fixa?</h2>
+    <div id="repeticao"></div>
+
+    <h2 class="secao-titulo">o dia, linha a linha</h2>
+    <div class="alternar" id="i-verdict" style="margin-bottom:12px">
+      <button class="pilula" aria-pressed="true" data-verdict="">Tudo</button>
+      <button class="pilula" aria-pressed="false" data-verdict="casado">Casadas</button>
+      <button class="pilula" aria-pressed="false" data-verdict="ambiguo">Ambíguas</button>
+      <button class="pilula" aria-pressed="false" data-verdict="sem_casamento">Sem casamento</button>
+      <button class="pilula" aria-pressed="false" data-verdict="outra_plataforma">Outra loja</button>
+    </div>
+    <div class="poco" id="correlacao"></div>
+
+    <h2 class="secao-titulo">varreduras da API</h2>
+    <div id="varreduras"></div>
+  </section>
+
+  <!-- ============ GRUPOS OBSERVADOS ============ -->
+  <section class="secao" id="secao-grupos">
+    <h1 class="t-pagina">Grupos observados</h1>
+    <p class="sub">Os grupos de promoção que o motor lê para aprender o critério dos concorrentes.
+      Só leitura: nada é republicado. Marque o tipo de cada um — sem essa marcação não dá para
+      separar depois o critério de grupo generalista do critério de grupo de nicho.</p>
+
+    <div class="painel">
+      <h3 class="t-titulo">Adicionar um grupo</h3>
+      <p class="nota" style="margin-top:0">Cole o id do grupo, ou use a aba Conexões para listar
+        os grupos de um número já conectado.</p>
+      <div class="linha-campos">
+        <div><label for="g-jid">Id do grupo</label><input id="g-jid" placeholder="120363XXXXXXXXXX@g.us" /></div>
+        <div><label for="g-nome">Nome (como você reconhece)</label><input id="g-nome" placeholder="ex.: Promos Tech BR" /></div>
+        <div><label for="g-kind">Tipo</label><select id="g-kind">
+          <option value="promo">promo — promoção genérica</option>
+          <option value="nicho">nicho — do seu nicho</option>
+          <option value="misto">misto</option>
+          <option value="proprio">próprio — seu grupo</option>
+        </select></div>
+      </div>
+      <div class="acoes" style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn" id="btn-add-grupo">Adicionar grupo</button>
+      </div>
+      <div class="nota" id="g-msg"></div>
+    </div>
+
+    <h2 class="secao-titulo">grupos cadastrados</h2>
+    <div class="poco" id="lista-grupos"></div>
+
+    <h2 class="secao-titulo">cobertura por grupo</h2>
+    <div id="cobertura"></div>
+
+    <h2 class="secao-titulo">entrada do n8n</h2>
+    <div class="painel">
+      <p class="nota" style="margin-top:0">Endereço que o seu fluxo do n8n chama para entregar o
+        que leu nos grupos. O segredo vai na própria URL — trate como senha. Aceita um item ou
+        um lote (array) por chamada.</p>
+      <div class="poco" style="padding:12px;margin:10px 0">
+        <code class="mono" id="ingest-url" style="font-size:11.5px;word-break:break-all;color:var(--ink2)">carregando…</code>
+      </div>
+      <details>
+        <summary class="t-dado" style="cursor:pointer;margin-bottom:10px">o que enviar no corpo</summary>
+<pre class="mono" style="font-size:11.5px;color:var(--ink2);background:var(--well);padding:12px;border-radius:8px;overflow-x:auto">{
+  "groupJid":  "120363XXXXXXXXXX@g.us",
+  "groupName": "Promos Tech BR",
+  "text":      "texto da mensagem",
+  "postedAt":  1754000000,
+  "hasImage":  true
+}</pre>
+      </details>
+      <div class="acoes" style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn fantasma pequeno" id="btn-copiar-url">copiar endereço</button>
+        <button class="btn perigo pequeno" id="btn-girar-token">gerar novo segredo</button>
+      </div>
+    </div>
   </section>
 
   <!-- ============ CONEXÕES ============ -->
   <section class="secao" id="secao-conexoes">
-    <h1>Conexões</h1>
+    <h1 class="t-pagina">Conexões</h1>
     <p class="sub">Conecte o número do WhatsApp e escolha em quais grupos ele dispara.</p>
-    <div class="card">
-      <h3>Conectar um número</h3>
-      <p class="nota"><b>Número novo:</b> preencha nome + função e faça 1 → 2 → 3. O passo 1 cria a instância na
-        Evolution e já a configura para grupos (recebe grupos, rejeita chamadas, webhook apontado para cá).
+    <div class="painel">
+      <h3 class="t-titulo">Conectar um número</h3>
+      <p class="nota" style="margin-top:0"><b>Número novo:</b> preencha nome + função e faça 1 → 2 → 3.
+        O passo 1 cria a instância na Evolution e já a configura para grupos (recebe grupos,
+        rejeita chamadas, webhook apontado para cá).
         <b>Número que já existe na sua Evolution?</b> Pule 1–3 e vá direto em <b>Registrar canal</b>.</p>
-      <div class="linha">
+      <div class="linha-campos">
         <div><label for="c-name">Nome do número / instância</label>
           <input id="c-name" placeholder="ex.: Principal — ou o nome exato de uma instância existente" /></div>
         <div><label for="c-role">Função</label><select id="c-role">
@@ -265,65 +233,72 @@
           <option value="listener">listener — só escuta</option>
         </select></div>
       </div>
-      <div class="acoes">
-        <button class="btn" onclick="criarInstancia()">1. Criar e configurar</button>
-        <button class="btn fantasma" onclick="mostrarQr()">2. Mostrar QR</button>
-        <button class="btn fantasma" onclick="verificarEstado()">3. Verificar conexão</button>
+      <div class="acoes" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <button class="btn" id="btn-criar-inst">1. Criar e configurar</button>
+        <button class="btn fantasma" id="btn-qr">2. Mostrar QR</button>
+        <button class="btn fantasma" id="btn-estado">3. Verificar conexão</button>
       </div>
       <div id="qr" class="qr"></div>
       <div id="c-msg" class="nota"></div>
 
-      <div id="extra-poster" style="display:none">
-        <h3 style="margin-top:20px">Em quais grupos esse número dispara?</h3>
-        <button class="btn fantasma pequeno" onclick="listarGrupos()">Listar grupos</button>
-        <div id="c-grupos" class="lista-grupos"><div class="nota">clique em "Listar grupos" e marque os grupos.</div></div>
+      <div id="extra-poster">
+        <h3 class="t-titulo" style="margin-top:22px">Em quais grupos esse número dispara?</h3>
+        <button class="btn fantasma pequeno" id="btn-listar-grupos">Listar grupos</button>
+        <div id="c-grupos" class="lista-marcar"><div class="nota" style="padding:8px">clique em "Listar grupos" e marque os grupos.</div></div>
         <label for="c-grupo-manual" style="margin-top:10px">ou cole o id de um grupo</label>
         <input id="c-grupo-manual" placeholder="120363XXXXXXXXXX@g.us" />
+        <div class="acoes" style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn" id="btn-registrar-canal">Registrar para disparo</button>
+          <button class="btn fantasma" id="btn-registrar-intel">Registrar para observação</button>
+        </div>
+        <p class="nota">"Disparo" posta no grupo. "Observação" só lê, para inteligência de mercado.</p>
       </div>
       <div id="extra-listener" style="display:none">
         <p class="nota" style="margin-top:12px">Depois de conectar, aponte o webhook da Evolution para este app:</p>
-        <button class="btn fantasma pequeno" onclick="configurarWebhook()">Configurar webhook do listener</button>
+        <button class="btn fantasma pequeno" id="btn-webhook">Configurar webhook do listener</button>
       </div>
-      <div class="acoes"><button class="btn" onclick="registrarCanal()">Registrar canal</button></div>
     </div>
 
-    <h2>números e grupos cadastrados</h2>
-    <div id="lista-canais"><div class="vazio">—</div></div>
+    <h2 class="secao-titulo">números e grupos de disparo</h2>
+    <div class="poco" id="lista-canais"></div>
   </section>
 
   <!-- ============ CONFIG ============ -->
   <section class="secao" id="secao-config">
-    <h1>Config</h1>
-    <p class="sub">Chaves e endereços ficam no servidor. O painel nunca mostra um segredo de volta — só diz se está definido.</p>
-    <div class="card">
-      <h3>Evolution API (WhatsApp)</h3>
-      <div id="evo-status" class="nota"></div>
+    <h1 class="t-pagina">Config</h1>
+    <p class="sub">Chaves e endereços ficam no servidor. O painel nunca mostra um segredo de volta —
+      só diz se está definido.</p>
+
+    <div class="painel">
+      <h3 class="t-titulo">Evolution API (WhatsApp)</h3>
+      <div id="evo-status" class="nota" style="margin-top:0"></div>
       <label for="evo-url">URL da Evolution</label>
       <input id="evo-url" placeholder="http://host-da-evolution:8080" />
       <label for="evo-key" style="margin-top:10px">API key (AUTHENTICATION_API_KEY)</label>
       <input id="evo-key" type="password" placeholder="fica só no servidor" />
-      <div class="acoes"><button class="btn" onclick="salvarEvolution()">Salvar Evolution</button></div>
+      <div class="acoes" style="margin-top:12px"><button class="btn" id="btn-salvar-evo">Salvar Evolution</button></div>
     </div>
-    <div class="card">
-      <h3>Acesso ao painel</h3>
-      <div id="acesso-status" class="nota"></div>
+
+    <div class="painel">
+      <h3 class="t-titulo">Acesso ao painel</h3>
+      <div id="acesso-status" class="nota" style="margin-top:0"></div>
       <p class="nota">Trocar a senha derruba as sessões abertas em outros dispositivos.</p>
       <label for="ac-user">Usuário</label>
       <input id="ac-user" placeholder="dono" />
       <label for="ac-pass" style="margin-top:10px">Nova senha (mínimo 8 caracteres)</label>
       <input id="ac-pass" type="password" placeholder="nova senha" />
-      <div class="acoes"><button class="btn" onclick="salvarAcesso()">Trocar acesso</button></div>
+      <div class="acoes" style="margin-top:12px"><button class="btn" id="btn-salvar-acesso">Trocar acesso</button></div>
       <p class="nota" id="ac-webhook"></p>
     </div>
 
-    <div class="card">
-      <h3>Inteligência artificial (copy)</h3>
-      <div id="cfg-status" class="nota"></div>
+    <div class="painel">
+      <h3 class="t-titulo">Inteligência artificial (copy)</h3>
+      <div id="cfg-status" class="nota" style="margin-top:0"></div>
       <label for="cfg-key">Chave da OpenAI</label>
       <input id="cfg-key" type="password" placeholder="sk-… (fica só no servidor)" />
       <label for="cfg-model" style="margin-top:10px">Modelo</label>
       <input id="cfg-model" placeholder="ex.: gpt-5.4-mini" />
-      <div class="acoes"><button class="btn" onclick="salvarIa()">Salvar IA</button></div>
+      <div class="acoes" style="margin-top:12px"><button class="btn" id="btn-salvar-ia">Salvar IA</button></div>
       <p class="nota">Se o modelo não existir, cai automaticamente para <span class="mono">gpt-4.1-mini</span> →
         <span class="mono">gpt-4o-mini</span>. Sem chave, a copy usa o texto determinístico do app.</p>
     </div>
@@ -331,368 +306,13 @@
 
   <!-- ============ FALHAS ============ -->
   <section class="secao" id="secao-falhas">
-    <h1>Falhas</h1>
-    <p class="sub">O que não conseguiu ser enviado, com o erro cru. Fila morta: nada aqui é reenviado sozinho.</p>
-    <div id="falhas"><div class="vazio">—</div></div>
+    <h1 class="t-pagina">Falhas</h1>
+    <p class="sub">O que não conseguiu ser enviado, com o erro cru. Fila morta: nada aqui é
+      reenviado sozinho.</p>
+    <div class="poco" id="falhas"></div>
   </section>
 </div>
 
-<script>
-/* =======================  utilitários  ======================= */
-const fmtBRL=v=>v==null?'—':Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const num=v=>v==null?null:Number(v);
-const el=id=>document.getElementById(id);
-async function api(p,o){const r=await fetch(p,o);let j={};try{j=await r.json()}catch(e){}
-  if(!r.ok)throw new Error(j.error||('HTTP '+r.status));return j;}
-function msg(id,texto,cls){const n=el(id);if(n)n.innerHTML='<span class="'+(cls||'')+'">'+esc(texto)+'</span>';}
-function falhou(idAlvo,e){const n=el(idAlvo);if(n)
-  n.innerHTML='<div class="vazio" style="color:#ff8a76;border-color:rgba(240,80,58,.4)">não carregou: '+
-  esc(e.message||String(e))+'<br><button class="btn pequeno fantasma" style="margin-top:10px" onclick="recarregar()">tentar de novo</button></div>';}
-function guard(fn,idAlvo){return Promise.resolve().then(fn).catch(e=>falhou(idAlvo,e));}
-
-/* =======================  navegação por rota real  ======================= */
-/* As abas são caminhos (/feed, /ciclos…) e o servidor devolve esta página em
-   qualquer um deles — abrir a URL direto funciona, e o botão voltar também. */
-const SECOES=['visao','feed','ciclos','conexoes','config','falhas'];
-const ROTA={'/':'visao','/fila':'feed','/feed':'feed','/ciclos':'ciclos','/conexoes':'conexoes','/config':'config','/falhas':'falhas'};
-let secaoAtual='visao';
-function abrir(secao,empurrar){
-  if(!SECOES.includes(secao))secao='visao';
-  secaoAtual=secao;
-  document.querySelectorAll('.secao').forEach(s=>s.classList.remove('ativa'));
-  el('secao-'+secao).classList.add('ativa');
-  document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('ativa',a.dataset.secao===secao));
-  if(empurrar){const caminho=Object.keys(ROTA).find(k=>ROTA[k]===secao)||'/';history.pushState({secao},'',caminho);}
-  carregarSecao(secao);
-  window.scrollTo({top:0,behavior:'smooth'});
-}
-document.querySelectorAll('nav a').forEach(a=>a.addEventListener('click',ev=>{ev.preventDefault();abrir(a.dataset.secao,true);}));
-window.addEventListener('popstate',()=>abrir(ROTA[location.pathname]||'visao',false));
-
-function carregarSecao(s){
-  if(s==='visao'){guard(carregarFunil,'funil');guard(carregarPlacar,'placar');}
-  if(s==='feed'){guard(carregarFacetas,'f-resumo');guard(carregarOfertas,'ofertas');}
-  if(s==='ciclos')guard(carregarCiclos,'ciclos');
-  if(s==='conexoes')guard(carregarCanais,'lista-canais');
-  if(s==='config')guard(carregarConfig,'cfg-status');
-  if(s==='falhas')guard(carregarFalhas,'falhas');
-}
-function recarregar(){guard(pulso,'estado-api');carregarSecao(secaoAtual);}
-
-/* =======================  saúde da API  ======================= */
-async function pulso(){
-  try{await api('/health');el('led').classList.remove('off');el('estado-api').textContent='motor no ar';}
-  catch(e){el('led').classList.add('off');el('estado-api').textContent='API fora do ar';}
-}
-
-/* =======================  o funil  ======================= */
-async function carregarFunil(){
-  const [stats,runs]=await Promise.all([api('/api/stats'),api('/api/capture/runs')]);
-  const ultimo=(runs||[]).map(r=>r.stats).find(s=>s&&s.fetched!=null)||{};
-  const buscadas=ultimo.fetched||0;
-  const cortes=ultimo.cut||{};
-  const cortadas=Object.values(cortes).reduce((a,b)=>a+Number(b),0);
-  const selecionadas=ultimo.selected||0;
-  const o=stats.offers||{};
-  const naFila=(o.approved||0)+(o.pending||0);
-  const enviadasHoje=stats.sentToday||0;
-
-  const faixas=[
-    ['entrada',buscadas,'buscadas na Shopee'],
-    ['corte',cortadas,'cortadas pelo filtro'],
-    ['saida',selecionadas,'aprovadas no ciclo'],
-    ['enviado',enviadasHoje,'enviadas hoje'],
-  ];
-  const total=Math.max(1,...faixas.map(f=>f[1]));
-  const trilha=faixas.map(([cls,n,rot])=>{
-    const peso=Math.max(0.12,n/total);
-    return `<div class="faixa ${cls}" style="flex-grow:${(peso*100).toFixed(0)}" title="${esc(rot)}">
-      <div class="n">${n}</div><div class="r">${esc(rot)}</div></div>`;
-  }).join('');
-
-  const ordenados=Object.entries(cortes).sort((a,b)=>b[1]-a[1]).slice(0,8);
-  const motivos=ordenados.length
-    ? `<div class="motivos">${ordenados.map(([m,n])=>`<span class="motivo"><b>${n}</b> ${esc(m)}</span>`).join('')}</div>`
-    : '';
-  const taxa=buscadas?Math.round((selecionadas/buscadas)*100):0;
-  el('funil').innerHTML=`<div class="trilha">${trilha}</div>
-    <div class="legenda">último ciclo: ${buscadas} buscadas → ${selecionadas} aprovadas
-      (${taxa}% de aproveitamento) · ${naFila} esperando na fila</div>${motivos}`;
-}
-
-async function carregarPlacar(){
-  const s=await api('/api/stats');const o=s.offers||{};
-  const placas=[
-    ['aprovadas na fila',o.approved||0,true],['aguardando revisão',o.pending||0,false],
-    ['enviadas hoje',s.sentToday||0,false],['rejeitadas',o.rejected||0,false],
-  ];
-  el('placar').innerHTML=placas.map(([l,n,d])=>
-    `<div class="placa${d?' destaque':''}"><div class="n">${n}</div><div class="l">${esc(l)}</div></div>`).join('');
-  const cor={active:'var(--ok)',warming:'var(--warn)',paused:'var(--ink3)',banned:'var(--danger)'};
-  el('canais-chips').innerHTML=(s.channels||[]).map(c=>
-    `<span class="chip"><span class="dot" style="background:${cor[c.status]||'var(--ink3)'}"></span>
-     ${esc(c.display_name||c.instance_ref)} · ${esc(c.status)} · disjuntor ${esc(c.breaker)}</span>`).join('')
-    ||'<span class="vazio" style="padding:12px">nenhum número conectado. Vá em <a href="/conexoes" onclick="event.preventDefault();abrir(\'conexoes\',true)">Conexões</a> para ligar o WhatsApp.</span>';
-}
-
-/* =======================  feed  ======================= */
-let filtros={status:'approved',order:'fila',priority:false,withRealDiscount:false};
-el('f-status').addEventListener('click',ev=>{
-  const b=ev.target.closest('[data-status]');if(!b)return;
-  el('f-status').querySelectorAll('.pilula').forEach(p=>p.setAttribute('aria-pressed','false'));
-  b.setAttribute('aria-pressed','true');filtros.status=b.dataset.status;aplicarFiltros();
-});
-['f-prio','f-real'].forEach(id=>el(id).addEventListener('click',()=>{
-  const b=el(id),novo=b.getAttribute('aria-pressed')!=='true';b.setAttribute('aria-pressed',String(novo));
-  if(id==='f-prio')filtros.priority=novo;else filtros.withRealDiscount=novo;aplicarFiltros();
-}));
-el('f-q').addEventListener('keydown',e=>{if(e.key==='Enter')aplicarFiltros();});
-el('f-ordem').addEventListener('change',aplicarFiltros);
-el('f-keyword').addEventListener('change',aplicarFiltros);
-function limparFiltros(){
-  ['f-q','f-min','f-max','f-com'].forEach(i=>el(i).value='');
-  el('f-keyword').value='';el('f-ordem').value='fila';
-  el('f-prio').setAttribute('aria-pressed','false');el('f-real').setAttribute('aria-pressed','false');
-  filtros={status:filtros.status,order:'fila',priority:false,withRealDiscount:false};aplicarFiltros();
-}
-function aplicarFiltros(){guard(carregarOfertas,'ofertas');}
-
-function queryFeed(){
-  const p=new URLSearchParams();
-  p.set('status',filtros.status);
-  p.set('order',el('f-ordem').value||'fila');
-  const q=el('f-q').value.trim();if(q)p.set('q',q);
-  const k=el('f-keyword').value;if(k)p.set('keyword',k);
-  const mn=el('f-min').value;if(mn)p.set('minPrice',mn);
-  const mx=el('f-max').value;if(mx)p.set('maxPrice',mx);
-  const cm=el('f-com').value;if(cm)p.set('minCommissionBrl',cm);
-  if(el('f-prio').getAttribute('aria-pressed')==='true')p.set('priority','1');
-  if(el('f-real').getAttribute('aria-pressed')==='true')p.set('withRealDiscount','1');
-  return p.toString();
-}
-
-async function carregarFacetas(){
-  const f=await api('/api/feed/facets');
-  const sel=el('f-keyword'),atual=sel.value;
-  sel.innerHTML='<option value="">todas as palavras-chave</option>'+
-    (f.keywords||[]).map(k=>`<option value="${esc(k.keyword)}">${esc(k.keyword)} (${k.c})</option>`).join('');
-  sel.value=atual;
-}
-
-/* Bloco de preço: o antigo MONITORADO por nós, ao lado do atual. Quando ainda
-   não há leituras suficientes, diz isso em vez de inventar desconto. */
-function blocoPreco(r){
-  const agora=num(r.price), mediana=num(r.mediana)??num(r.original_price), obs=num(r.obs)||0;
-  const real=num(r.discount_pct), economia=num(r.savings_brl);
-  let html=`<span class="agora">${fmtBRL(agora)}</span>`;
-  if(mediana!=null&&agora!=null&&mediana>agora&&obs>=3){
-    html+=`<span class="antes">${fmtBRL(mediana)}</span>`;
-    if(real!=null)html+=`<span class="queda">−${Math.round(real)}% de verdade${economia?' · '+fmtBRL(economia):''}</span>`;
-  }else{
-    html+=`<span class="monitorando">preço antigo: monitorando (${obs} ${obs===1?'leitura':'leituras'}${obs<3?' de 3':''})</span>`;
-  }
-  const anunciado=num(r.advertised_discount_pct);
-  if(anunciado)html+=`<span class="monitorando">· anúncio diz −${Math.round(anunciado)}%</span>`;
-  return `<div class="precos">${html}</div>`;
-}
-
-async function carregarOfertas(){
-  const rows=await api('/api/offers?'+queryFeed());
-  el('f-resumo').textContent=rows.length+(rows.length===1?' oferta':' ofertas');
-  const alvo=el('ofertas');
-  if(!rows.length){alvo.innerHTML='<div class="vazio">nenhuma oferta com esses filtros. Tente limpar os filtros ou rodar um ciclo em Ciclos de captura.</div>';return;}
-  alvo.innerHTML=rows.map(r=>{
-    const etiquetas=[
-      r.is_priority?'<span class="etiqueta">FURA-FILA</span>':'',
-      r.status==='sent'?'<span class="etiqueta frio">ENVIADA</span>':'',
-      r.status==='rejected'?'<span class="etiqueta ruim">REJEITADA</span>':'',
-    ].join('');
-    const comPct=r.commission_rate?(Number(r.commission_rate)*100).toFixed(0)+'%':'—';
-    const meta=[
-      `<span>ganho/venda <b>${fmtBRL(num(r.commission_brl))}</b> (${comPct})</span>`,
-      r.sales!=null?`<span>vendas <b>${r.sales}</b></span>`:'',
-      r.rating_star?`<span>nota <b>${Number(r.rating_star).toFixed(1)}</b></span>`:'',
-      r.keyword?`<span>origem <b>${esc(r.keyword)}</b></span>`:'',
-      r.reject_reason?`<span style="color:#ff8a76">motivo: ${esc(r.reject_reason)}</span>`:'',
-    ].filter(Boolean).join('');
-    const acoes=[];
-    if(r.status==='pending')acoes.push(`<button class="btn pequeno" onclick="agir('${r.id}','approve')">aprovar</button>`);
-    if(r.status==='approved'||r.status==='pending')acoes.push(`<button class="btn pequeno perigo" onclick="agir('${r.id}','reject')">rejeitar</button>`);
-    return `<article class="oferta">
-      <img src="${esc(r.image_url)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'"/>
-      <div class="corpo">
-        <div class="titulo">${esc(r.title)}${etiquetas}</div>
-        ${blocoPreco(r)}
-        <div class="linha-meta">${meta}</div>
-        ${r.rewritten_copy?`<div class="copy">${esc(r.rewritten_copy)}</div>`:''}
-        ${r.affiliate_url?`<div class="linha-meta"><a href="${esc(r.affiliate_url)}" target="_blank" rel="noopener">abrir link de afiliado</a></div>`:''}
-      </div>
-      <div class="acoes-oferta">${acoes.join('')}</div></article>`;
-  }).join('');
-}
-async function agir(id,oque){await api(`/api/offers/${id}/${oque}`,{method:'POST'});recarregar();}
-
-/* =======================  ciclos  ======================= */
-async function carregarCiclos(){
-  const runs=await api('/api/capture/runs');
-  if(!runs.length){el('ciclos').innerHTML='<div class="vazio">nenhum ciclo ainda. Clique em "rodar um ciclo agora".</div>';el('amostras').innerHTML='<div class="vazio">—</div>';return;}
-  const linhas=runs.map(r=>{
-    const s=r.stats||{};
-    const cortadas=Object.values(s.cut||{}).reduce((a,b)=>a+Number(b),0);
-    const quando=new Date(r.started_at).toLocaleString('pt-BR');
-    const dur=s.ms!=null?(s.ms/1000).toFixed(1)+'s':(r.finished_at?'—':'rodando…');
-    const topo=Object.entries(s.cut||{}).sort((a,b)=>b[1]-a[1]).slice(0,3)
-      .map(([m,n])=>`${n}× ${m}`).join(' · ')||'—';
-    return `<tr><td>${esc(quando)}</td><td>${esc(r.trigger)}</td><td>${s.keywords??'—'}</td>
-      <td>${s.fetched??0}</td><td style="color:#ff8a76">${cortadas}</td>
-      <td style="color:var(--signal)">${s.selected??0}</td><td>${dur}</td><td>${esc(topo)}</td></tr>`;
-  }).join('');
-  el('ciclos').innerHTML=`<div class="rolagem"><table>
-    <thead><tr><th>quando</th><th>gatilho</th><th>keywords</th><th>buscadas</th><th>cortadas</th>
-    <th>aprovadas</th><th>duração</th><th>principais cortes</th></tr></thead><tbody>${linhas}</tbody></table></div>`;
-
-  const amostras=(runs.map(r=>r.stats).find(s=>s&&s.samples&&s.samples.length)||{}).samples||[];
-  el('amostras').innerHTML=amostras.length
-    ? `<div class="rolagem"><table><thead><tr><th>produto</th><th>preço</th><th>por que foi cortado</th></tr></thead>
-       <tbody>${amostras.map(a=>`<tr><td>${esc(a.title)}</td><td>${fmtBRL(a.price)}</td><td style="color:#ff8a76">${esc(a.reason)}</td></tr>`).join('')}</tbody></table></div>`
-    : '<div class="vazio">nenhuma amostra guardada no último ciclo.</div>';
-}
-async function buscarAgora(){
-  const b=el('btn-buscar');b.disabled=true;const antes=b.textContent;b.textContent='buscando…';
-  try{await api('/api/capture/run',{method:'POST'});
-    setTimeout(()=>{recarregar();b.disabled=false;b.textContent=antes;},9000);
-  }catch(e){alert('não deu: '+e.message);b.disabled=false;b.textContent=antes;}
-}
-async function limparFeed(){
-  if(!confirm('Apagar as ofertas do feed? O histórico de preço é preservado (é o que mede desconto real).'))return;
-  const r=await api('/api/offers/purge',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-  alert(r.apagadas+' ofertas apagadas.');recarregar();
-}
-
-/* =======================  conexões  ======================= */
-const cNome=()=>el('c-name').value.trim();
-const cFuncao=()=>el('c-role').value;
-el('c-role').addEventListener('change',()=>{
-  el('extra-poster').style.display=cFuncao()==='poster'?'block':'none';
-  el('extra-listener').style.display=cFuncao()==='listener'?'block':'none';
-});
-el('extra-poster').style.display='block';
-async function criarInstancia(){try{if(!cNome())return msg('c-msg','informe um nome','err');
-  const r=await api('/api/instances',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name:cNome(),role:cFuncao()})});
-  msg('c-msg','provisionado — '+Object.entries(r.steps||{}).map(([k,v])=>k+': '+v).join(' · ')+'. Agora mostre o QR.','ok');
-}catch(e){msg('c-msg',e.message,'err');}}
-async function mostrarQr(){try{const r=await api('/api/instances/'+encodeURIComponent(cNome())+'/qr');
-  const src=r.base64?(r.base64.startsWith('data:')?r.base64:'data:image/png;base64,'+r.base64):'';
-  el('qr').innerHTML=src?`<img src="${src}" alt="QR code para conectar o WhatsApp"/>`:'';
-  msg('c-msg',(r.pairingCode?'código: '+r.pairingCode+' — ':'')+'escaneie o QR no WhatsApp desse número.','warn');
-}catch(e){msg('c-msg',e.message,'err');}}
-async function verificarEstado(){try{const r=await api('/api/instances/'+encodeURIComponent(cNome())+'/state');
-  const ok=r.state==='open';msg('c-msg','estado: '+r.state+(ok?' — conectado':' (precisa ficar "open")'),ok?'ok':'warn');
-  if(ok)el('qr').innerHTML='';}catch(e){msg('c-msg',e.message,'err');}}
-async function listarGrupos(){try{const g=await api('/api/instances/'+encodeURIComponent(cNome())+'/groups');
-  el('c-grupos').innerHTML=g.length?g.map(x=>`<label class="grp"><input type="checkbox" value="${esc(x.id)}"
-    data-subject="${esc(x.subject||x.id)}"> ${esc(x.subject||x.id)}</label>`).join('')
-    :'<div class="nota">nenhum grupo encontrado nesse número.</div>';
-  msg('c-msg',g.length+' grupos — marque onde esse número vai disparar','ok');}catch(e){msg('c-msg',e.message,'err');}}
-async function configurarWebhook(){try{
-  const r=await api('/api/instances/'+encodeURIComponent(cNome())+'/webhook',
-    {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-  msg('c-msg','webhook configurado: '+r.url,'ok');}catch(e){msg('c-msg',e.message,'err');}}
-async function registrarCanal(){try{
-  if(cFuncao()==='listener'){
-    await api('/api/channels',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({role:'listener',instance_ref:cNome(),display_name:cNome()})});
-    msg('c-msg','listener "'+cNome()+'" registrado','ok');carregarCanais();return;
-  }
-  const marcados=[...document.querySelectorAll('#c-grupos input:checked')]
-    .map(i=>({id:i.value,subject:i.getAttribute('data-subject')}));
-  const manual=el('c-grupo-manual').value.trim();
-  if(manual)marcados.push({id:manual,subject:manual});
-  if(!marcados.length)return msg('c-msg','marque ao menos um grupo (ou cole um id)','err');
-  const r=await api('/api/channels/bulk',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({instance_ref:cNome(),groups:marcados})});
-  msg('c-msg',r.created+' grupo(s) registrados para "'+cNome()+'"','ok');
-  el('c-grupo-manual').value='';carregarCanais();
-}catch(e){msg('c-msg',e.message,'err');}}
-async function carregarCanais(){
-  const rows=await api('/api/channels');
-  el('lista-canais').innerHTML=rows.length?rows.map(c=>{
-    const pausado=c.status!=='active';
-    const et=pausado?`<span class="etiqueta ruim">${esc(c.status)}</span>`:'';
-    const alterna=c.role==='poster'
-      ?(pausado?`<button class="btn pequeno" onclick="canalStatus('${c.id}','active')">ativar</button>`
-               :`<button class="btn pequeno perigo" onclick="canalStatus('${c.id}','paused')">pausar</button>`):'';
-    return `<article class="oferta"><div class="corpo">
-      <div class="titulo">${esc(c.display_name||c.instance_ref)} <span class="etiqueta frio">${esc(c.role)}</span>${et}</div>
-      <div class="linha-meta"><span>número <b>${esc(c.instance_ref)}</b></span>
-        <span>grupo <b>${c.target_ref?esc(c.target_ref):'—'}</b></span>
-        <span>hoje <b>${c.sent_today||0}</b> de ${c.daily_cap}</span></div></div>
-      <div class="acoes-oferta">${alterna}<button class="btn pequeno perigo" onclick="canalRemover('${c.id}')">remover</button></div>
-    </article>`;}).join(''):'<div class="vazio">nenhum número ou grupo cadastrado ainda.</div>';
-}
-async function canalStatus(id,status){await api('/api/channels/'+id,{method:'PATCH',
-  headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});carregarCanais();}
-async function canalRemover(id){if(!confirm('Parar de disparar nesse grupo e remover o canal?'))return;
-  await api('/api/channels/'+id,{method:'DELETE'});carregarCanais();}
-
-/* =======================  config  ======================= */
-async function sair(){await api('/api/logout',{method:'POST'});location.href='/login';}
-async function salvarAcesso(){
-  try{
-    const senha=el('ac-pass').value, usuario=el('ac-user').value.trim();
-    if(senha.length<8)return alert('a senha precisa de pelo menos 8 caracteres');
-    await api('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({senha,usuario:usuario||undefined})});
-    el('ac-pass').value='';
-    alert('acesso atualizado — você vai precisar entrar de novo');
-    location.href='/login';
-  }catch(e){alert('erro: '+e.message);}
-}
-async function carregarAcesso(){
-  const a=await api('/api/access');
-  el('acesso-status').innerHTML='usuário atual: <b>'+esc(a.usuario)+'</b>';
-  el('ac-user').value=a.usuario||'';
-  el('ac-webhook').innerHTML=a.webhookUrl
-    ?'webhook do listener (já inclui o token secreto):<br><span class="mono" style="font-size:11px;word-break:break-all">'+esc(a.webhookUrl)+'</span>'
-    :'defina PUBLIC_APP_URL para o app poder registrar o webhook.';
-}
-async function carregarConfig(){
-  await carregarAcesso();
-  const s=await api('/api/settings');
-  el('cfg-status').innerHTML=(s.openai_api_key_set?'<span class="ok">chave da OpenAI definida</span>'
-    :'<span class="warn">sem chave — a copy usa o texto do app</span>')+
-    ' · modelo <span class="mono">'+esc(s.copy_model)+'</span>';
-  el('cfg-model').value=s.copy_model||'';
-  el('evo-status').innerHTML=(s.evolution_api_key_set&&s.evolution_api_url
-    ?'<span class="ok">Evolution configurada</span>':'<span class="warn">Evolution não configurada</span>');
-  el('evo-url').value=s.evolution_api_url||'';
-}
-async function salvarSettings(body){await api('/api/settings',{method:'PUT',
-  headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});}
-async function salvarIa(){try{const body={};
-  const k=el('cfg-key').value.trim();if(k)body.openai_api_key=k;
-  const m=el('cfg-model').value.trim();if(m)body.copy_model=m;
-  await salvarSettings(body);el('cfg-key').value='';carregarConfig();}catch(e){alert('erro: '+e.message);}}
-async function salvarEvolution(){try{const body={evolution_api_url:el('evo-url').value.trim()};
-  const k=el('evo-key').value.trim();if(k)body.evolution_api_key=k;
-  await salvarSettings(body);el('evo-key').value='';carregarConfig();}catch(e){alert('erro: '+e.message);}}
-
-/* =======================  falhas  ======================= */
-async function carregarFalhas(){
-  const rows=await api('/api/dlq');
-  el('falhas').innerHTML=rows.length?rows.map(r=>`<article class="oferta"><div class="corpo">
-    <div class="titulo mono" style="font-size:13px">${esc(r.orig_queue)} · canal ${esc(r.channel_id||'—')}</div>
-    <div class="linha-meta" style="color:#ff8a76">${esc((r.error||'').slice(0,300))}</div>
-    <div class="linha-meta">${esc(new Date(r.created_at).toLocaleString('pt-BR'))}</div>
-  </div></article>`).join(''):'<div class="vazio">nenhuma falha pendente.</div>';
-}
-
-/* =======================  início  ======================= */
-abrir(ROTA[location.pathname]||'visao',false);
-guard(pulso,'estado-api');
-setInterval(()=>{guard(pulso,'estado-api');if(secaoAtual==='visao')guard(carregarFunil,'funil');},20000);
-</script>
+<script src="/painel.js"></script>
 </body>
 </html>

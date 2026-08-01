@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coletor de grupos no n8n — MOTOR::AFILIADO</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--void:#0E1116;--panel:#161B22;--panel2:#1B222B;--line:#2A333F;--ink:#E9EFF5;--ink2:#AEBAC6;--ink3:#7C8896;--signal:#F5A524;--ok:#25D07B;--danger:#F0503A;--tg:#3B9EFF;--warn:#E3B341;}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--void);color:var(--ink);font-family:"IBM Plex Sans",system-ui,Segoe UI,Roboto,sans-serif;font-size:16px;line-height:1.65}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+.topbar{position:sticky;top:0;z-index:20;background:rgba(11,14,18,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:13px 22px;display:flex;align-items:center;gap:12px}
+.topbar .led{width:9px;height:9px;border-radius:50%;background:var(--signal)}
+.topbar b{font-family:"IBM Plex Mono",monospace;font-size:13px;letter-spacing:.03em}
+.topbar .doc{color:var(--ink3);font-family:"IBM Plex Mono",monospace;font-size:12px}
+.topbar a{margin-left:auto;color:var(--signal);text-decoration:none;font-family:"IBM Plex Mono",monospace;font-size:12px}
+.wrap{max-width:900px;margin:0 auto;padding:34px 24px 80px}
+h1,h2,h3,h4{font-family:"Bricolage Grotesque","IBM Plex Sans",sans-serif;font-weight:800;line-height:1.15;letter-spacing:-.01em;margin:1.6em 0 .5em}
+h1{font-size:clamp(28px,4vw,42px);margin-top:.2em}
+h2{font-size:26px;border-bottom:1px solid var(--line);padding-bottom:8px}
+h3{font-size:20px;color:var(--signal)}
+h4{font-size:16px}
+p{margin:.7em 0}
+a{color:var(--signal)}
+code{font-family:"IBM Plex Mono",monospace;font-size:.88em;background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:var(--signal)}
+pre{background:#0B0E12;border:1px solid var(--line);border-radius:10px;padding:16px;overflow-x:auto}
+pre code{background:none;border:0;padding:0;color:var(--ink2);font-size:13px}
+blockquote{margin:1em 0;border-left:3px solid var(--signal);background:rgba(245,165,36,.05);padding:10px 16px;color:var(--ink2);border-radius:0 8px 8px 0}
+ul,ol{padding-left:24px}
+li{margin:.35em 0}
+table{border-collapse:collapse;width:100%;margin:1em 0;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:9px 13px;text-align:left;font-size:14.5px;vertical-align:top}
+th{background:var(--panel2);font-family:"IBM Plex Mono",monospace;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3)}
+hr{border:0;border-top:1px solid var(--line);margin:2em 0}
+.toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 20px;margin:0 0 30px}
+.toc>ul{padding-left:18px}
+.toc a{text-decoration:none;color:var(--ink2)}
+.toc a:hover{color:var(--signal)}
+strong{color:var(--ink)}
+.doc-li{list-style:none;margin-left:-24px;padding-left:2px;display:flex;gap:10px;align-items:flex-start}
+.doc-li>input{margin-top:5px;flex:none;width:16px;height:16px;accent-color:var(--signal);cursor:pointer}
+.doc-li.done>span{opacity:.5;text-decoration:line-through}
+</style></head>
+<body>
+<div class="topbar"><span class="led"></span><b>MOTOR::AFILIADO</b><span class="doc">Coletor de grupos no n8n</span><a href="index.html">todos os docs ↗</a></div>
+<div class="wrap"><div class="toc"><span class="toctitle">Índice</span><ul>
+<li><a href="#coletor-de-grupos-no-n8n">Coletor de grupos no n8n</a><ul>
+<li><a href="#antes-de-importar-voce-talvez-nao-precise-disto">Antes de importar: você talvez não precise disto</a></li>
+<li><a href="#importar">Importar</a></li>
+<li><a href="#por-que-o-motor-recusa-grupo-nao-cadastrado">Por que o motor recusa grupo não cadastrado</a></li>
+<li><a href="#o-que-trafega">O que trafega</a></li>
+<li><a href="#o-que-nao-fazer-com-isto">O que NÃO fazer com isto</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<h1 id="coletor-de-grupos-no-n8n">Coletor de grupos no n8n</h1>
+<p>Fluxo importável que lê os grupos de promoção observados e entrega ao motor.</p>
+<h2 id="antes-de-importar-voce-talvez-nao-precise-disto">Antes de importar: você talvez não precise disto</h2>
+<p>Existem <strong>dois caminhos</strong> para a mesma coisa, e o mais simples não usa n8n:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Direto (sem n8n)</th>
+<th>Com n8n</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Como</td>
+<td>webhook da Evolution aponta para <code>PUBLIC_APP_URL/webhook/evolution/&lt;token&gt;</code></td>
+<td>Evolution → n8n → motor</td>
+</tr>
+<tr>
+<td>Peças</td>
+<td>uma</td>
+<td>três</td>
+</tr>
+<tr>
+<td>Você mexe na regra</td>
+<td>precisa de deploy</td>
+<td>edita no editor visual, na hora</td>
+</tr>
+<tr>
+<td>Onde configurar</td>
+<td>painel → Conexões → "Configurar webhook do listener"</td>
+<td>aqui</td>
+</tr>
+</tbody>
+</table>
+<p>O motor já sabe receber direto — <code>src/whatsapp/listener.ts</code> traduz o payload da Evolution e
+chama a mesma ingestão. <strong>Use o n8n se você quiser ver e ajustar a regra de coleta sem
+esperar deploy</strong> (filtrar remetente, ignorar certos formatos, enriquecer antes de entregar).
+Se não for mexer, o caminho direto é menos coisa para quebrar.</p>
+<p>Os dois caminhos gravam na mesma tabela. Dá para começar num e mudar para o outro depois —
+só não aponte o webhook da Evolution para os dois ao mesmo tempo, senão cada mensagem chega
+duas vezes (o motor deduplica por hash, então não corrompe nada, mas gera trabalho à toa).</p>
+<h2 id="importar">Importar</h2>
+<ol>
+<li>n8n → <strong>Workflows → Import from File</strong> → <code>coletor-grupos.json</code>.</li>
+<li><strong>Variável de ambiente <code>MOTOR_INGEST_URL</code></strong> no n8n: copie o endereço em
+   <strong>Painel → Grupos observados → entrada do n8n</strong>. O segredo vai na própria URL — trate
+   como senha. (Se preferir, cole direto no nó "Entrega ao motor" em vez de usar variável.)</li>
+<li>Ative o workflow e copie a <strong>URL de produção</strong> do nó de webhook.</li>
+<li>Na Evolution, na instância do número <strong>que só escuta</strong>, configure essa URL para o evento
+   <code>MESSAGES_UPSERT</code>.</li>
+<li>No painel, aba <strong>Grupos observados</strong>, cadastre os grupos e marque o tipo de cada um.</li>
+</ol>
+<h2 id="por-que-o-motor-recusa-grupo-nao-cadastrado">Por que o motor recusa grupo não cadastrado</h2>
+<p>De propósito. O número de escuta está em vários grupos — inclusive nos seus. Se o motor
+aceitasse tudo que chega, você não teria como ligar e desligar a observação sem mexer no
+n8n, e a base encheria de conversa que não interessa. O cadastro no painel é o interruptor.</p>
+<p>Recusa devolve <strong>200</strong>, não erro: o n8n não deve marcar a execução como falha nem ficar
+tentando de novo. A resposta diz o motivo (<code>"grupo pausado"</code>, <code>"repetido"</code>).</p>
+<h2 id="o-que-trafega">O que trafega</h2>
+<p>Só isto:</p>
+<pre><code class="language-json">{
+  &quot;groupJid&quot;:  &quot;120363XXXXXXXXXX@g.us&quot;,
+  &quot;text&quot;:      &quot;texto da mensagem&quot;,
+  &quot;postedAt&quot;:  1754000000,
+  &quot;hasImage&quot;:  true,
+  &quot;instanceRef&quot;: &quot;Listener&quot;
+}
+</code></pre>
+<p><code>participant</code> e <code>pushName</code> — telefone e nome de quem postou — <strong>existem no payload da
+Evolution e são descartados no nó de código</strong>, antes de sair do n8n. O motor limpa de novo
+do lado dele. Camada dupla, de propósito: dado pessoal que nunca é gravado não vaza.</p>
+<h2 id="o-que-nao-fazer-com-isto">O que NÃO fazer com isto</h2>
+<p>Republicar. Copiar a copy de outro afiliado é proibido pelos termos da Shopee, e é o tipo de
+coisa que custa a conta — que é o único ponto de monetização do projeto. O que se extrai aqui
+é <strong>critério</strong> (qual produto, que horas, com que margem), não texto.</p></div>
+
+</body></html>

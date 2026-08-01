@@ -56,6 +56,16 @@ services:
       # Senha do painel — OPCIONAL. Vazio = painel aberto (escolha do dono).
       DASHBOARD_USER: ${DASHBOARD_USER:-}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
+      # Inteligência de mercado. Vazio = default do código (o config trata
+      # ausente == vazio de propósito: o Swarm injeta '' quando você não
+      # preenche no Portainer, e sem isso um campo em branco atropelaria o
+      # default sem erro visível).
+      INTEL_ENABLED: ${INTEL_ENABLED:-}
+      INTEL_SWEEP_CRON: ${INTEL_SWEEP_CRON:-}
+      INTEL_MATCH_MIN_SIM: ${INTEL_MATCH_MIN_SIM:-}
+      # Validade da oferta na fila — é o que impede o impasse "sem canal =
+      # captura parada para sempre". Não zere sem ler o PERGUNTAS.md.
+      OFFER_MAX_AGE_HOURS: ${OFFER_MAX_AGE_HOURS:-}
     networks: [internal, TrakAdsNet]
     deploy:
       restart_policy: { condition: any }
@@ -85,6 +95,13 @@ services:
       SHOPEE_APP_ID: ${SHOPEE_APP_ID}
       SHOPEE_APP_SECRET: ${SHOPEE_APP_SECRET}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
+      # O worker é quem roda a varredura e a correlação por cron.
+      INTEL_ENABLED: ${INTEL_ENABLED:-}
+      INTEL_SWEEP_CRON: ${INTEL_SWEEP_CRON:-}
+      INTEL_SWEEP_LIMIT: ${INTEL_SWEEP_LIMIT:-}
+      INTEL_RETENTION_DAYS: ${INTEL_RETENTION_DAYS:-}
+      INTEL_MATCH_MIN_SIM: ${INTEL_MATCH_MIN_SIM:-}
+      OFFER_MAX_AGE_HOURS: ${OFFER_MAX_AGE_HOURS:-}
     networks: [internal]
     deploy:
       restart_policy: { condition: any }

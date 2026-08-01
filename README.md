@@ -46,6 +46,61 @@ WA listener ─────┘             dedup, filtros, desconto-real, copy I
 
 Regra de ouro: **quem captura nunca posta.** O listener só grava e enfileira.
 
+## Inteligência de mercado — engenharia reversa do critério
+
+O motor sabe capturar. O que ele não sabia é **escolher**: os filtros cortam 100 → 10 por
+limiares que foram chutados (comissão mínima, vendas ≥ 20, nota ≥ 4). Quem já validou
+empiricamente o que dá venda são os concorrentes. Esta camada lê o gabarito deles.
+
+```
+                     ┌── varredura larga (2/2h, 48 keywords, SEM filtro)
+Shopee Open API ─────┤        └──► api_observations   "o cardápio"
+                     └── captura estreita (30/30min, escolhe 10 p/ postar)
+
+grupos de promoção ──► Evolution/n8n ──► intel_posts   "o que eles escolheram"
+   (número que só lê)                          │
+                                               ▼
+                                        intel_matches
+                             casa por título + preço, guarda o ATRASO
+```
+
+**Por que uma varredura separada da captura?** Porque as duas têm objetivos opostos. A
+captura é estreita de propósito (16 keywords por ciclo, top 1, teto de 10) — se ela fosse a
+fonte da correlação, você compararia os grupos contra as *suas* 10 escolhas, o que responde
+"nós escolhemos igual?" e não "o que eles escolheram do mesmo cardápio?". Só a esteira crua
+responde a segunda.
+
+**Como o casamento funciona.** Similaridade de trigrama do título (`pg_trgm`) + proximidade
+de preço, dentro de uma janela para trás. **Não resolvemos o link curto do concorrente** — cada
+resolução seria um clique no link de afiliado dele, centenas por dia do mesmo IP, o que
+infla o clique dele sem conversão e desenha assinatura de robô. O link é guardado, não visitado.
+
+**Cada casamento tem veredito**, porque três coisas diferentes viram a mesma linha vazia num
+relatório e só uma é interessante:
+
+| veredito | significa |
+|---|---|
+| `casado` | achamos a oferta correspondente na API |
+| `ambiguo` | dois candidatos bons demais para desempatar |
+| `sem_casamento` | nenhum candidato plausível |
+| `nao_observado` | o produto existe, mas nossa varredura não o viu |
+
+O que a aba **Inteligência** responde: atraso mediano entre a API e o post, quantos por cento
+do cardápio eles aproveitam, se postam no mesmo dia ou no seguinte, quais produtos repetem
+(indício de lista fixa), e — o mais útil — **o perfil comparado**: a mediana de preço, ganho
+por venda, vendas e nota do que eles escolheram contra a mediana do cardápio inteiro. Se a
+mediana de ganho por venda das escolhidas for muito maior que a do cardápio, comissão é
+critério deles. É daí que saem os limiares dos nossos filtros, medidos em vez de chutados.
+
+**Limite honesto:** a qualidade da análise é a qualidade do casamento. Título de produto
+genérico ("Fone Bluetooth Sem Fio") casa com muita coisa. Por isso todo casamento carrega uma
+nota de confiança, e o painel deixa você recasar um post específico e conferir na mão.
+
+**LGPD e ToS:** só o conteúdo da oferta é gravado — telefone, @ e nome de quem postou são
+removidos antes do banco, em duas camadas (no fluxo do n8n e de novo na ingestão). E nada é
+republicado: copiar a *copy* de outro afiliado é proibido pelos termos da Shopee. O que se
+aprende aqui é o critério, não o texto.
+
 ## Estrutura de pastas
 
 ```
@@ -66,11 +121,22 @@ app/
                           affiliate, copy (IA c/ placeholders), process
     ai/openai.ts       ← Structured Outputs + moderação (com fallback de modelo)
     capture/shopeeFeed ← puxa ofertas -> raw_captures -> fila
+    intel/             ← inteligência de mercado:
+                          observe (varredura larga da API, sem filtro)
+                          ingest  (post de grupo -> intel_posts, sem PII)
+                          match   (correlação por título+preço, com veredito)
+                          report  (agregações do dashboard de correlação)
     queue/             ← queues, processWorker, scheduler (gotejamento + fura-fila)
-    whatsapp/          ← evolution (client), poster, listener (enriquecimento)
+    whatsapp/          ← evolution (client), poster, listener (traduz p/ a ingestão)
     api.ts             ← REST + webhook + WS (entrypoint)
-    worker.ts          ← workers + cron de captura (entrypoint)
-    commands/          ← shopeeCheck (teste ao vivo), captureOnce
+    worker.ts          ← workers + cron de captura e de varredura (entrypoint)
+    commands/          ← shopeeCheck (teste ao vivo), captureOnce, dryRun
+  public/
+    index.html         ← estrutura do painel (8 seções em rotas reais)
+    painel.css         ← sistema visual: superfície em 3 níveis, 1 cor = 1 significado
+    painel.js          ← comportamento, incluindo o gráfico da travessia
+  n8n/
+    coletor-grupos.json ← fluxo importável: Evolution -> normaliza -> motor
 ```
 
 ## Fluxo dos dados

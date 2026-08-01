@@ -200,3 +200,213 @@ CREATE TABLE IF NOT EXISTS capture_runs (
   stats       JSONB,
   error       TEXT
 );
+
+-- ============================================================
+-- INTELIGÊNCIA DE MERCADO — engenharia reversa do critério dos concorrentes
+--
+-- Pergunta que estas tabelas respondem: "de tudo que a Shopee ofereceu hoje,
+-- o que os grupos escolheram postar, quanto tempo depois, e o que eles têm em
+-- comum?". Isso exige guardar as DUAS pontas no mesmo eixo do tempo:
+--   api_observations = o cardápio (tudo que a API devolveu, SEM filtro)
+--   intel_posts      = o prato escolhido (o que apareceu nos grupos)
+--   intel_matches    = a ligação entre os dois, com nota de confiança
+--
+-- A captura de PRODUÇÃO (raw_captures/offers) não serve para isso: ela só grava
+-- as ~10 finalistas de cada ciclo. Comparar grupos contra as finalistas mede se
+-- nós e eles escolhemos igual — não O QUE eles escolheram do mesmo cardápio.
+-- ============================================================
+
+-- Similaridade de título (trigrama) — é como um post de grupo encontra a oferta
+-- correspondente na API sem resolver o link de afiliado do concorrente.
+-- Guardado: se o papel do banco não puder criar extensão, a migração NÃO morre;
+-- o casamento cai para similaridade em memória (mais lento, mesmo resultado).
+DO $intel$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS pg_trgm;
+EXCEPTION
+  WHEN insufficient_privilege OR feature_not_supported OR undefined_file THEN
+    RAISE NOTICE 'pg_trgm indisponível — casamento por similaridade em memória';
+END
+$intel$;
+
+-- Uma varredura = uma passada larga pelas keywords, só para OBSERVAR.
+CREATE TABLE IF NOT EXISTS intel_sweeps (
+  id          BIGSERIAL PRIMARY KEY,
+  started_at  TIMESTAMPTZ DEFAULT now(),
+  finished_at TIMESTAMPTZ,
+  trigger     TEXT DEFAULT 'cron',      -- cron | manual
+  keywords    INT,
+  observed    INT DEFAULT 0,
+  stats       JSONB,
+  error       TEXT
+);
+
+-- O CARDÁPIO: tudo que a API devolveu, sem filtro, com hora.
+-- Uma linha por (varredura, produto) — a repetição ao longo do tempo é o dado:
+-- é ela que permite dizer "vimos às 14h02, eles postaram às 14h49".
+CREATE TABLE IF NOT EXISTS api_observations (
+  id            BIGSERIAL PRIMARY KEY,
+  sweep_id      BIGINT REFERENCES intel_sweeps(id) ON DELETE CASCADE,
+  observed_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  platform      TEXT NOT NULL DEFAULT 'shopee',
+  product_id    TEXT NOT NULL,
+  shop_id       TEXT,
+  title         TEXT NOT NULL,
+  title_norm    TEXT NOT NULL,             -- normalizeText(title): base do trigrama
+  price         NUMERIC(12,2),
+  commission_rate NUMERIC(6,4),
+  commission_brl  NUMERIC(12,2),           -- preço x comissão (ganho por venda)
+  advertised_discount_pct NUMERIC(5,2),
+  sales         INT,
+  rating_star   NUMERIC(3,2),
+  keyword       TEXT,
+  image_url     TEXT,
+  offer_link    TEXT,
+  -- Nossos filtros de produção teriam aprovado esta oferta? Sem gravar isso não
+  -- dá para responder a pergunta mais útil de todas: "do que eles postaram,
+  -- quanto o NOSSO filtro teria deixado passar?".
+  would_pass    BOOLEAN,
+  reject_reason TEXT,
+  UNIQUE (sweep_id, platform, product_id)
+);
+CREATE INDEX IF NOT EXISTS idx_api_obs_time     ON api_observations (observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_api_obs_product  ON api_observations (platform, product_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_api_obs_keyword  ON api_observations (keyword);
+
+-- Grupos de WhatsApp observados. `kind` é a marcação que precisa existir desde
+-- o primeiro dia: sem ela não dá para separar depois "critério de grupo
+-- generalista" de "critério de grupo de nicho" — e os dois são diferentes.
+CREATE TABLE IF NOT EXISTS intel_groups (
+  id           BIGSERIAL PRIMARY KEY,
+  group_jid    TEXT NOT NULL UNIQUE,       -- 1203...@g.us
+  display_name TEXT,
+  kind         TEXT NOT NULL DEFAULT 'promo'
+               CHECK (kind IN ('promo','nicho','misto','proprio')),
+  instance_ref TEXT,                        -- instância da Evolution que escuta
+  is_active    BOOLEAN NOT NULL DEFAULT true,
+  notes        TEXT,
+  posts_count  INT NOT NULL DEFAULT 0,
+  last_post_at TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ DEFAULT now()
+);
+
+-- O QUE OS GRUPOS POSTARAM. Só conteúdo de oferta.
+-- LGPD: nada de telefone, @, nome ou id de participante — nem em coluna, nem
+-- dentro de `text`. Quem grava é responsável por já ter removido.
+CREATE TABLE IF NOT EXISTS intel_posts (
+  id             BIGSERIAL PRIMARY KEY,
+  group_id       BIGINT NOT NULL REFERENCES intel_groups(id) ON DELETE CASCADE,
+  posted_at      TIMESTAMPTZ NOT NULL,      -- hora da MENSAGEM (não da ingestão)
+  ingested_at    TIMESTAMPTZ DEFAULT now(),
+  message_hash   TEXT NOT NULL,             -- sha256(texto normalizado) = dedupe
+  text           TEXT NOT NULL,
+  title_guess    TEXT,                      -- melhor palpite do nome do produto
+  title_norm     TEXT,
+  price          NUMERIC(12,2),
+  price_old      NUMERIC(12,2),
+  discount_pct   NUMERIC(5,2),
+  coupon         TEXT,
+  urls           JSONB NOT NULL DEFAULT '[]',
+  platform_guess TEXT,                      -- shopee | amazon | mercadolivre | outro
+  has_image      BOOLEAN NOT NULL DEFAULT false,
+  matched_at     TIMESTAMPTZ,               -- null = ainda não passou pelo matcher
+  wa_message_id  TEXT                       -- id da mensagem no WhatsApp (dedupe correta)
+);
+ALTER TABLE intel_posts ADD COLUMN IF NOT EXISTS wa_message_id TEXT;
+
+/*
+ * DEDUPLICAÇÃO — a versão anterior estava ERRADA de um jeito que invertia uma
+ * das respostas do produto.
+ *
+ * Era `UNIQUE (group_id, message_hash)`, com hash do texto, único no grupo PARA
+ * SEMPRE. Grupo de promoção republica a MESMA mensagem toda semana — e detectar
+ * exatamente isso ("eles usam lista fixa?") é uma das quatro perguntas que este
+ * módulo existe para responder. Com o hash eterno, a 2ª à 4ª republicação eram
+ * descartadas, `repeticaoDeProdutos` via `vezes = 1`, e o painel afirmava "eles
+ * não repetem produtos" — o inverso exato da verdade.
+ *
+ * Agora são duas travas, cada uma no seu papel:
+ *  1. wa_message_id: o identificador estável do WhatsApp. É a dedupe CERTA —
+ *     mesma mensagem entregue duas vezes pelo webhook é a mesma mensagem.
+ *  2. hash do texto POR DIA: rede de segurança para quando o id não vier
+ *     (payload antigo, outro transporte). Escopado ao dia justamente para não
+ *     apagar a republicação de amanhã.
+ */
+DO $intel$
+BEGIN
+  ALTER TABLE intel_posts DROP CONSTRAINT IF EXISTS intel_posts_group_id_message_hash_key;
+EXCEPTION WHEN undefined_object THEN
+  NULL;
+END
+$intel$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_intel_posts_wamid
+  ON intel_posts (group_id, wa_message_id)
+  WHERE wa_message_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_intel_posts_hash_dia
+  ON intel_posts (group_id, message_hash, ((posted_at AT TIME ZONE 'America/Sao_Paulo')::date));
+CREATE INDEX IF NOT EXISTS idx_intel_posts_time    ON intel_posts (posted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_intel_posts_pending ON intel_posts (matched_at) WHERE matched_at IS NULL;
+-- O Postgres NÃO cria índice para chave estrangeira sozinho, e a cobertura por
+-- grupo agrupa exatamente por esta coluna.
+CREATE INDEX IF NOT EXISTS idx_intel_posts_grupo   ON intel_posts (group_id, posted_at DESC);
+
+-- A CORRELAÇÃO. `verdict` existe para impedir a conclusão confiante e errada:
+-- "eles não postaram" e "a gente não observou" e "o matcher não achou" parecem
+-- a mesma linha vazia no relatório, e só a primeira é interessante.
+CREATE TABLE IF NOT EXISTS intel_matches (
+  id              BIGSERIAL PRIMARY KEY,
+  post_id         BIGINT NOT NULL REFERENCES intel_posts(id) ON DELETE CASCADE,
+  observation_id  BIGINT REFERENCES api_observations(id) ON DELETE SET NULL,
+  product_id      TEXT,
+  method          TEXT NOT NULL CHECK (method IN ('title_price','title','product_id','manual')),
+  confidence      NUMERIC(4,3) NOT NULL,     -- 0..1
+  title_sim       NUMERIC(4,3),
+  price_delta_pct NUMERIC(7,2),
+  -- O NÚMERO CENTRAL: segundos entre a nossa 1ª observação do produto e o post
+  -- deles. Negativo = eles postaram ANTES de a gente ver (têm outra fonte, ou
+  -- nossa varredura é lenta demais).
+  lag_seconds     BIGINT,
+  first_seen_at   TIMESTAMPTZ,
+  verdict         TEXT NOT NULL CHECK (verdict IN
+                  ('casado','ambiguo','sem_casamento','nao_observado')),
+  confirmed       BOOLEAN,                   -- conferência humana por amostragem
+  created_at      TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (post_id)
+);
+/*
+ * 'outra_plataforma' entrou DEPOIS, a partir de mensagens reais de um grupo
+ * concorrente: em 17 posts observados, 10 eram Amazon e 7 Mercado Livre —
+ * ZERO Shopee. Post de outra loja não tem como casar contra a API da Shopee, e
+ * marcá-lo `sem_casamento` faria o painel dizer "a nossa varredura não achou",
+ * quando a verdade é "não havia o que achar aqui". São conclusões opostas: a
+ * primeira manda calibrar a varredura, a segunda manda trocar de grupo.
+ *
+ * DROP + ADD em vez de IF NOT EXISTS porque CHECK não tem forma idempotente
+ * nativa; o custo é desprezível e o schema é reaplicado a cada boot.
+ */
+ALTER TABLE intel_matches DROP CONSTRAINT IF EXISTS intel_matches_verdict_check;
+ALTER TABLE intel_matches ADD CONSTRAINT intel_matches_verdict_check
+  CHECK (verdict IN ('casado','ambiguo','sem_casamento','nao_observado','outra_plataforma'));
+
+CREATE INDEX IF NOT EXISTS idx_intel_matches_verdict ON intel_matches (verdict, created_at DESC);
+-- O perfil de escolha junta matches -> observações; sem isto vira varredura da
+-- tabela maior do sistema.
+CREATE INDEX IF NOT EXISTS idx_intel_matches_obs     ON intel_matches (observation_id)
+  WHERE observation_id IS NOT NULL;
+-- Repetição de produto (o teste da hipótese "lista fixa") agrupa por product_id.
+CREATE INDEX IF NOT EXISTS idx_intel_matches_produto ON intel_matches (product_id)
+  WHERE product_id IS NOT NULL;
+
+-- Índices de trigrama: só se a extensão existir (ver bloco guardado acima).
+DO $intel$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+    CREATE INDEX IF NOT EXISTS idx_api_obs_title_trgm
+      ON api_observations USING gin (title_norm gin_trgm_ops);
+    CREATE INDEX IF NOT EXISTS idx_intel_posts_title_trgm
+      ON intel_posts USING gin (title_norm gin_trgm_ops);
+  END IF;
+END
+$intel$;

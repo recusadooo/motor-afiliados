@@ -58,6 +58,10 @@ export interface CaptureStats {
   /** amostra de reprovados (título/preço/motivo) para o dono conferir o corte */
   samples: Array<{ title: string; price: number | null; reason: string }>;
   keywords: number;
+  /** ofertas vencidas por idade neste ciclo (é o que destrava a fila) */
+  expired: number;
+  /** canais poster ativos no momento do ciclo — 0 significa "captura sem destino" */
+  posterChannels: number;
   ms: number;
 }
 
@@ -96,6 +100,44 @@ async function backlogAprovado(): Promise<number> {
   return row ? Number(row.c) : 0;
 }
 
+/**
+ * Vence oferta velha que nunca foi enviada.
+ *
+ * Existe por dois motivos, e o segundo é o que já quebrou este motor em
+ * produção: (1) preço envelhece — postar o preço de três dias atrás é postar
+ * uma promoção que não existe mais; (2) sem vencimento, a trava de backlog vira
+ * IMPASSE. Sem canal de WhatsApp conectado nada esvazia a fila, a fila trava
+ * acima do teto e a captura é pulada para sempre. Foi exatamente o que
+ * aconteceu: 34 ofertas presas, 336 ciclos pulados em 7 dias, com o container
+ * de pé e o /health respondendo 200 — falha silenciosa, a pior espécie.
+ */
+async function expirarOfertasVelhas(maxHoras: number): Promise<number> {
+  if (maxHoras <= 0) return 0;
+  const linhas = await query<{ id: string }>(
+    `UPDATE offers
+        SET status = 'expired',
+            reject_reason = COALESCE(reject_reason, 'venceu: mais de ' || $1 || 'h na fila sem envio')
+      WHERE status IN ('pending','approved','queued')
+        AND created_at < now() - ($1 || ' hours')::interval
+      RETURNING id`,
+    [String(maxHoras)],
+  );
+  return linhas.length;
+}
+
+/**
+ * Existe canal poster ATIVO? Se não existe, a fila não tem para onde drenar.
+ * Não é motivo para parar de capturar (o histórico de preço continua sendo
+ * medido, e a fila fica pronta para quando um número conectar), mas é motivo
+ * para gritar no log — senão o motor parece saudável enquanto não entrega nada.
+ */
+async function canaisPosterAtivos(): Promise<number> {
+  const row = await queryOne<{ c: string }>(
+    `SELECT count(*)::text AS c FROM channels WHERE role = 'poster' AND status = 'active'`,
+  );
+  return row ? Number(row.c) : 0;
+}
+
 async function ensureShopeeSource(): Promise<string> {
   const row = await queryOne<{ id: string }>(
     `INSERT INTO sources (kind, external_ref, name, role)
@@ -130,6 +172,8 @@ export async function runCapture(processInline = false, trigger = 'cron'): Promi
     cut: {},
     samples: [],
     keywords: keywords.length,
+    expired: 0,
+    posterChannels: 0,
     ms: 0,
   };
   const MAX_AMOSTRAS = 14;
@@ -145,6 +189,25 @@ export async function runCapture(processInline = false, trigger = 'cron'): Promi
     [trigger],
   );
   const runId = runRow?.id ?? null;
+
+  // ORDEM IMPORTA: vencer ANTES de medir o backlog. Se a medição viesse
+  // primeiro, oferta velha continuaria contando para a trava e o impasse se
+  // manteria — que foi o bug que deixou o motor 7 dias parado.
+  stats.expired = await expirarOfertasVelhas(cfg.OFFER_MAX_AGE_HOURS);
+  if (stats.expired > 0) {
+    log.info('ofertas vencidas por idade', {
+      quantas: stats.expired,
+      maxHoras: cfg.OFFER_MAX_AGE_HOURS,
+    });
+  }
+
+  stats.posterChannels = await canaisPosterAtivos();
+  if (stats.posterChannels === 0) {
+    log.warn(
+      'nenhum canal poster ativo — o motor captura e mede preço, mas não tem para onde postar. ' +
+        'Conecte um número em Conexões.',
+    );
+  }
 
   // Trava de backlog: com a fila cheia, capturar mais só acumula (o gotejamento
   // posta ~2-3 por hora). Pula o ciclo inteiro e registra o motivo.

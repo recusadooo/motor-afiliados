@@ -23,6 +23,7 @@ const CHAVE_SENHA = 'dashboard_password_hash';
 const CHAVE_USUARIO = 'dashboard_user';
 const CHAVE_SESSAO = 'session_secret';
 const CHAVE_WEBHOOK = 'webhook_token';
+const CHAVE_INGESTAO = 'intel_ingest_token';
 export const COOKIE = 'motor_sessao';
 
 // ---------------------------------------------------------------- senha
@@ -60,6 +61,43 @@ export async function tokenWebhook(): Promise<string> {
     await setSetting(CHAVE_WEBHOOK, t);
   }
   return t;
+}
+
+/**
+ * Token da ingestão de inteligência. É SEPARADO do token do webhook de
+ * propósito: quem recebe este é o n8n, um sistema de terceiro que fica com o
+ * segredo salvo numa credencial dele. Se um dia esse token vazar, gira só ele —
+ * o webhook da Evolution continua valendo, e vice-versa.
+ */
+export async function tokenIngestao(): Promise<string> {
+  let t = await getSetting(CHAVE_INGESTAO);
+  if (!t) {
+    t = randomBytes(24).toString('hex');
+    await setSetting(CHAVE_INGESTAO, t);
+  }
+  return t;
+}
+
+/** Gira o token de ingestão (o fluxo do n8n precisa ser reconfigurado depois). */
+export async function girarTokenIngestao(): Promise<string> {
+  const t = randomBytes(24).toString('hex');
+  await setSetting(CHAVE_INGESTAO, t);
+  return t;
+}
+
+/**
+ * Compara segredo em tempo constante. `a !== b` sai no primeiro byte diferente,
+ * o que em tese vaza o prefixo correto por timing. Sobre TLS e com token de 24
+ * bytes o ataque é impraticável — mas comparar direito custa uma linha, e a
+ * alternativa é depender de "é difícil o bastante".
+ */
+export function segredoConfere(recebido: string | undefined, esperado: string): boolean {
+  if (!recebido) return false;
+  const a = Buffer.from(recebido);
+  const b = Buffer.from(esperado);
+  // timingSafeEqual EXIGE mesmo tamanho (lança se diferir), e o próprio
+  // tamanho não é segredo aqui.
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 export async function usuarioPainel(): Promise<string> {

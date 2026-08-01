@@ -49,6 +49,7 @@ strong{color:var(--ink)}
 <li><a href="#o-que-a-maquina-faz">O que a máquina faz</a></li>
 <li><a href="#decisoes-de-escopo-congeladas">Decisões de escopo (congeladas)</a></li>
 <li><a href="#arquitetura-resumo">Arquitetura (resumo)</a></li>
+<li><a href="#inteligencia-de-mercado-engenharia-reversa-do-criterio">Inteligência de mercado — engenharia reversa do critério</a></li>
 <li><a href="#estrutura-de-pastas">Estrutura de pastas</a></li>
 <li><a href="#fluxo-dos-dados">Fluxo dos dados</a></li>
 <li><a href="#como-rodar">Como rodar</a></li>
@@ -142,6 +143,70 @@ WA listener ─────┘             dedup, filtros, desconto-real, copy I
                               send_logs (idempotência) + audit
 </code></pre>
 <p>Regra de ouro: <strong>quem captura nunca posta.</strong> O listener só grava e enfileira.</p>
+<h2 id="inteligencia-de-mercado-engenharia-reversa-do-criterio">Inteligência de mercado — engenharia reversa do critério</h2>
+<p>O motor sabe capturar. O que ele não sabia é <strong>escolher</strong>: os filtros cortam 100 → 10 por
+limiares que foram chutados (comissão mínima, vendas ≥ 20, nota ≥ 4). Quem já validou
+empiricamente o que dá venda são os concorrentes. Esta camada lê o gabarito deles.</p>
+<pre><code>                     ┌── varredura larga (2/2h, 48 keywords, SEM filtro)
+Shopee Open API ─────┤        └──► api_observations   &quot;o cardápio&quot;
+                     └── captura estreita (30/30min, escolhe 10 p/ postar)
+
+grupos de promoção ──► Evolution/n8n ──► intel_posts   &quot;o que eles escolheram&quot;
+   (número que só lê)                          │
+                                               ▼
+                                        intel_matches
+                             casa por título + preço, guarda o ATRASO
+</code></pre>
+<p><strong>Por que uma varredura separada da captura?</strong> Porque as duas têm objetivos opostos. A
+captura é estreita de propósito (16 keywords por ciclo, top 1, teto de 10) — se ela fosse a
+fonte da correlação, você compararia os grupos contra as <em>suas</em> 10 escolhas, o que responde
+"nós escolhemos igual?" e não "o que eles escolheram do mesmo cardápio?". Só a esteira crua
+responde a segunda.</p>
+<p><strong>Como o casamento funciona.</strong> Similaridade de trigrama do título (<code>pg_trgm</code>) + proximidade
+de preço, dentro de uma janela para trás. <strong>Não resolvemos o link curto do concorrente</strong> — cada
+resolução seria um clique no link de afiliado dele, centenas por dia do mesmo IP, o que
+infla o clique dele sem conversão e desenha assinatura de robô. O link é guardado, não visitado.</p>
+<p><strong>Cada casamento tem veredito</strong>, porque três coisas diferentes viram a mesma linha vazia num
+relatório e só uma é interessante:</p>
+<table>
+<thead>
+<tr>
+<th>veredito</th>
+<th>significa</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>casado</code></td>
+<td>achamos a oferta correspondente na API</td>
+</tr>
+<tr>
+<td><code>ambiguo</code></td>
+<td>dois candidatos bons demais para desempatar</td>
+</tr>
+<tr>
+<td><code>sem_casamento</code></td>
+<td>nenhum candidato plausível</td>
+</tr>
+<tr>
+<td><code>nao_observado</code></td>
+<td>o produto existe, mas nossa varredura não o viu</td>
+</tr>
+</tbody>
+</table>
+<p>O que a aba <strong>Inteligência</strong> responde: atraso mediano entre a API e o post, quantos por cento
+do cardápio eles aproveitam, se postam no mesmo dia ou no seguinte, quais produtos repetem
+(indício de lista fixa), e — o mais útil — <strong>o perfil comparado</strong>: a mediana de preço, ganho
+por venda, vendas e nota do que eles escolheram contra a mediana do cardápio inteiro. Se a
+mediana de ganho por venda das escolhidas for muito maior que a do cardápio, comissão é
+critério deles. É daí que saem os limiares dos nossos filtros, medidos em vez de chutados.</p>
+<p><strong>Limite honesto:</strong> a qualidade da análise é a qualidade do casamento. Título de produto
+genérico ("Fone Bluetooth Sem Fio") casa com muita coisa. Por isso todo casamento carrega uma
+nota de confiança, e o painel deixa você recasar um post específico e conferir na mão.</p>
+<p><strong>LGPD e ToS:</strong> só o conteúdo da oferta é gravado — telefone, @ e nome de quem postou são
+removidos antes do banco, em duas camadas (no fluxo do n8n e de novo na ingestão). E nada é
+republicado: copiar a <em>copy</em> de outro afiliado é proibido pelos termos da Shopee. O que se
+aprende aqui é o critério, não o texto.</p>
 <h2 id="estrutura-de-pastas">Estrutura de pastas</h2>
 <pre><code>app/
   README.md            ← este arquivo
@@ -160,11 +225,22 @@ WA listener ─────┘             dedup, filtros, desconto-real, copy I
                           affiliate, copy (IA c/ placeholders), process
     ai/openai.ts       ← Structured Outputs + moderação (com fallback de modelo)
     capture/shopeeFeed ← puxa ofertas -&gt; raw_captures -&gt; fila
+    intel/             ← inteligência de mercado:
+                          observe (varredura larga da API, sem filtro)
+                          ingest  (post de grupo -&gt; intel_posts, sem PII)
+                          match   (correlação por título+preço, com veredito)
+                          report  (agregações do dashboard de correlação)
     queue/             ← queues, processWorker, scheduler (gotejamento + fura-fila)
-    whatsapp/          ← evolution (client), poster, listener (enriquecimento)
+    whatsapp/          ← evolution (client), poster, listener (traduz p/ a ingestão)
     api.ts             ← REST + webhook + WS (entrypoint)
-    worker.ts          ← workers + cron de captura (entrypoint)
-    commands/          ← shopeeCheck (teste ao vivo), captureOnce
+    worker.ts          ← workers + cron de captura e de varredura (entrypoint)
+    commands/          ← shopeeCheck (teste ao vivo), captureOnce, dryRun
+  public/
+    index.html         ← estrutura do painel (8 seções em rotas reais)
+    painel.css         ← sistema visual: superfície em 3 níveis, 1 cor = 1 significado
+    painel.js          ← comportamento, incluindo o gráfico da travessia
+  n8n/
+    coletor-grupos.json ← fluxo importável: Evolution -&gt; normaliza -&gt; motor
 </code></pre>
 <h2 id="fluxo-dos-dados">Fluxo dos dados</h2>
 <p><code>worker.ts</code> roda a <strong>captura</strong> por cron → grava <code>raw_captures</code> → enfileira <code>process</code>.

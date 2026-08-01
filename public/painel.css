@@ -1,0 +1,470 @@
+/* ============================================================
+   MOTOR::AFILIADO — sistema visual do painel de operação
+   ============================================================
+
+   Três decisões governam este arquivo. Se você for mexer, mexa
+   sabendo delas:
+
+   1. SUPERFÍCIE EM TRÊS NÍVEIS. Antes, oferta, canal e falha eram
+      todos a mesma caixa (mesma borda, mesmo raio, mesmo fundo) e
+      nada guiava o olho. Agora: a página é o vazio, o painel sobe,
+      e a lista dentro do painel AFUNDA num poço. Hierarquia vem da
+      profundidade, não de mais borda.
+
+   2. UMA COR, UM SIGNIFICADO. O âmbar era botão primário, oferta
+      aprovada, fura-fila e aba ativa ao mesmo tempo — quando tudo
+      é destaque, nada é. Agora cada matiz carrega exatamente um
+      sentido, e nenhum elemento decorativo tem direito a cor.
+
+   3. O VAZIO É TELA DE PRIMEIRA CLASSE. Este painel passa a maior
+      parte do tempo sem canal conectado, sem envio, sem falha. O
+      estado vazio não é exceção — é a tela principal, e por isso
+      tem o mesmo peso tipográfico do conteúdo e sempre termina
+      numa ação.
+   ============================================================ */
+
+:root {
+  /* ---- superfícies (nível 0 = página, 1 = painel, 2 = poço) ---- */
+  --void: #0e1116;
+  --panel: #161b22;
+  --well: #10151b;
+  --line: #232c38;
+  --line-forte: #35414f;
+
+  /* ---- tinta ---- */
+  --ink: #e9eff5;
+  --ink2: #a9b6c4;
+  --ink3: #6f7c8b;
+
+  /* ---- COR = SIGNIFICADO (ver decisão 2) ----------------------
+     nos      âmbar   o que o NOSSO motor fez, escolheu ou vai fazer
+     eles     magenta os concorrentes: grupos observados, posts deles
+     entrada  azul    matéria-prima crua que entrou no funil
+     feito    verde   concluído: enviado, casado, confirmado
+     corte    vermelho cortado, rejeitado, falhou
+     Nada além disso recebe cor. Estado neutro usa --ink3. --------- */
+  --nos: #f5a524;
+  --eles: #de5f9e;
+  --entrada: #3b9eff;
+  --feito: #25d07b;
+  --corte: #f0503a;
+
+  /* Versões de fundo (12% ~ 16%) — a cor cheia fica só na marca. */
+  --nos-fraco: rgba(245, 165, 36, 0.13);
+  --eles-fraco: rgba(222, 95, 158, 0.13);
+  --entrada-fraco: rgba(59, 158, 255, 0.12);
+  --feito-fraco: rgba(37, 208, 123, 0.12);
+  --corte-fraco: rgba(240, 80, 58, 0.12);
+
+  /* ---- tipografia ---- */
+  --display: "Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, "Segoe UI", Roboto, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+
+  /* ---- ritmo ---- */
+  --r-sm: 8px;
+  --r: 12px;
+  --r-lg: 16px;
+  --gap: 14px;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--void);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Números que não dançam ao atualizar. Faltava, e o painel atualiza
+   sozinho a cada 20s — sem isto as colunas tremem a cada refresh. */
+.mono, table, .n, .valor, .metrica { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); }
+
+a { color: var(--nos); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--nos); outline-offset: 2px; border-radius: 4px; }
+
+/* ============================================================
+   ESCALA TIPOGRÁFICA
+   O degrau do meio (--t-titulo) é a correção principal: antes
+   pulava de 38px direto para mono de 11px, e todo bloco de
+   conteúdo aterrissava no mesmo tamanho.
+   ============================================================ */
+.t-pagina {
+  font-family: var(--display);
+  font-size: clamp(28px, 4.6vw, 44px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+  margin: 4px 0 6px;
+}
+.t-numero {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 27px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.t-titulo {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 19px;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  margin: 0 0 6px;
+}
+.t-corpo { font-size: 15px; }
+.t-menor { font-size: 13px; color: var(--ink2); }
+.t-rotulo {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+.t-dado { font-family: var(--mono); font-size: 12.5px; color: var(--ink2); }
+
+.sub { color: var(--ink3); font-size: 14px; margin: 0 0 24px; max-width: 62ch; }
+
+/* Eyebrow de seção: a régua encosta no texto e some no fim. */
+h2.secao-titulo {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink3);
+  margin: 32px 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 500;
+}
+h2.secao-titulo::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--line), transparent);
+}
+
+/* ============================================================
+   TOPO E NAVEGAÇÃO
+   ============================================================ */
+header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(11, 14, 19, 0.88);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
+  padding: 11px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+header .marca {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+header .sep { width: 1px; height: 16px; background: var(--line); }
+header .estado { font-family: var(--mono); font-size: 11.5px; color: var(--ink3); }
+header .direita { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* O LED é o único elemento que pisca — e só quando algo está errado. */
+.led { width: 8px; height: 8px; border-radius: 50%; background: var(--feito); box-shadow: 0 0 10px rgba(37, 208, 123, 0.6); }
+.led.off { background: var(--corte); box-shadow: 0 0 10px rgba(240, 80, 58, 0.6); animation: pulsa 1.6s ease-in-out infinite; }
+@keyframes pulsa { 50% { opacity: 0.35; } }
+
+nav {
+  border-bottom: 1px solid var(--line);
+  background: var(--void);
+  position: sticky;
+  top: 51px;
+  z-index: 15;
+  /* Borda esfumada à direita: avisa que a lista rola no celular. */
+  -webkit-mask-image: linear-gradient(90deg, #000 92%, transparent);
+  mask-image: linear-gradient(90deg, #000 92%, transparent);
+}
+nav .interno { max-width: 1200px; margin: 0 auto; padding: 0 20px; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+nav .interno::-webkit-scrollbar { display: none; }
+nav a {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink3);
+  text-decoration: none;
+  padding: 13px 13px;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+nav a:hover { color: var(--ink2); }
+nav a.ativa { color: var(--ink); border-bottom-color: var(--nos); }
+
+.wrap { max-width: 1200px; margin: 0 auto; padding: 22px 20px 72px; }
+.secao { display: none; }
+.secao.ativa { display: block; animation: entra 0.22s ease-out; }
+@keyframes entra { from { opacity: 0; transform: translateY(4px); } }
+
+/* ============================================================
+   SUPERFÍCIES (decisão 1)
+   ============================================================ */
+.painel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 18px;
+  margin-bottom: var(--gap);
+}
+/* Poço: afunda dentro do painel. Sem borda — a profundidade vem da
+   sombra interna, o que é o oposto visual do painel elevado. */
+.poco {
+  background: var(--well);
+  border-radius: var(--r);
+  padding: 6px;
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+}
+.poco > * + * { border-top: 1px solid var(--line); }
+
+/* ============================================================
+   O FUNIL — elemento-assinatura da visão geral.
+   A largura de cada faixa é proporcional ao número, então o corte
+   é visível antes de você ler o valor.
+   ============================================================ */
+.funil { border: 1px solid var(--line); border-radius: var(--r-lg); background: linear-gradient(180deg, var(--panel), #10151c); padding: 18px; overflow: hidden; }
+.funil .trilha { display: flex; align-items: stretch; gap: 4px; height: 68px; }
+.funil .faixa {
+  position: relative;
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  min-width: 78px;
+  overflow: hidden;
+  border: 1px solid var(--line-forte);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: flex-grow 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.funil .faixa .n { font-family: var(--display); font-size: 25px; font-weight: 800; line-height: 1; }
+.funil .faixa .r { font-family: var(--mono); font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink3); }
+.faixa.entrada { background: var(--entrada-fraco); border-color: rgba(59, 158, 255, 0.32); }
+.faixa.entrada .n { color: var(--entrada); }
+.faixa.corte { background: var(--corte-fraco); border-color: rgba(240, 80, 58, 0.3); }
+.faixa.corte .n { color: #ff8a76; }
+.faixa.saida { background: var(--nos-fraco); border-color: rgba(245, 165, 36, 0.42); }
+.faixa.saida .n { color: var(--nos); }
+.faixa.enviado { background: var(--feito-fraco); border-color: rgba(37, 208, 123, 0.34); }
+.faixa.enviado .n { color: var(--feito); }
+.funil .legenda { font-family: var(--mono); font-size: 11.5px; color: var(--ink3); margin-top: 12px; }
+
+.motivos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.motivo { font-family: var(--mono); font-size: 11px; padding: 4px 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--well); color: var(--ink2); }
+.motivo b { color: #ff8a76; font-weight: 600; }
+
+/* ============================================================
+   A TRAVESSIA — elemento-assinatura da inteligência.
+   Dois trilhos: em cima o cardápio que a API ofereceu, embaixo o
+   que os grupos postaram. Cada conector liga uma oferta ao post
+   dela, e a INCLINAÇÃO do conector é o atraso. Um feixe de linhas
+   paralelas significa cadência constante; linhas quase verticais,
+   repostagem imediata; diagonais longas, "eles postam no dia
+   seguinte". A resposta aparece antes de qualquer número.
+   ============================================================ */
+.travessia { border: 1px solid var(--line); border-radius: var(--r-lg); background: linear-gradient(180deg, var(--panel), #10151c); padding: 18px 18px 12px; overflow-x: auto; }
+.travessia svg { display: block; width: 100%; min-width: 620px; height: 190px; }
+.travessia .rail-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
+.travessia .hora { font-family: var(--mono); font-size: 9.5px; fill: var(--ink3); }
+.travessia .grade { stroke: var(--line); stroke-width: 1; }
+.travessia .rail { stroke: var(--line-forte); stroke-width: 1; }
+/* Densidade do cardápio: tudo que a API ofereceu, em traço fraco.
+   As escolhidas acendem por cima. Assim o "muito" e o "pouco"
+   coexistem sem que um apague o outro. */
+.travessia .tick-fundo { stroke: var(--nos); stroke-width: 1; opacity: 0.16; }
+.travessia .tick-nos { stroke: var(--nos); stroke-width: 2.5; stroke-linecap: round; }
+.travessia .tick-eles { stroke: var(--eles); stroke-width: 2.5; stroke-linecap: round; }
+.travessia .tick-eles.solto { opacity: 0.4; stroke-dasharray: 2 2; }
+.travessia .conector { stroke: var(--eles); stroke-width: 1; opacity: 0.5; fill: none; }
+.travessia .conector:hover { opacity: 1; stroke-width: 2; }
+.travessia .conector.desenha { stroke-dasharray: 400; stroke-dashoffset: 400; animation: risca 0.9s ease-out forwards; }
+@keyframes risca { to { stroke-dashoffset: 0; } }
+
+.legenda-cores { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; font-family: var(--mono); font-size: 11px; color: var(--ink3); }
+.legenda-cores span { display: inline-flex; align-items: center; gap: 7px; }
+.legenda-cores i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+
+/* ============================================================
+   DUMBBELL — perfil de escolha.
+   Uma linha por métrica, dois pontos: a mediana do cardápio
+   inteiro e a mediana do que ELES escolheram. A distância entre
+   os pontos é o critério deles. Eixo único por linha, porque as
+   métricas têm escalas diferentes e um eixo comum mentiria.
+   ============================================================ */
+.dumbbell { display: grid; gap: 2px; }
+.dumbbell .linha { display: grid; grid-template-columns: 132px 1fr 96px; align-items: center; gap: 12px; padding: 11px 8px; border-radius: var(--r-sm); }
+.dumbbell .linha:hover { background: rgba(255, 255, 255, 0.02); }
+.dumbbell .metrica { font-family: var(--mono); font-size: 11.5px; color: var(--ink2); }
+.dumbbell .pista { position: relative; height: 22px; }
+.dumbbell .barra { position: absolute; top: 10px; height: 2px; background: var(--line-forte); left: 0; right: 0; border-radius: 2px; }
+.dumbbell .liga { position: absolute; top: 10px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, var(--entrada), var(--eles)); }
+.dumbbell .ponto { position: absolute; top: 5px; width: 12px; height: 12px; border-radius: 50%; margin-left: -6px; box-shadow: 0 0 0 2px var(--panel); }
+.dumbbell .ponto.cardapio { background: var(--entrada); }
+.dumbbell .ponto.escolhido { background: var(--eles); }
+.dumbbell .valor { font-family: var(--mono); font-size: 12px; color: var(--ink); text-align: right; }
+.dumbbell .valor small { color: var(--ink3); display: block; font-size: 10.5px; }
+
+/* ============================================================
+   PLACARES
+   ============================================================ */
+.placar { display: grid; grid-template-columns: repeat(auto-fit, minmax(136px, 1fr)); gap: 10px; }
+.placa { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; }
+.placa .n { font-family: var(--display); font-size: 26px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; }
+.placa .l { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.07em; color: var(--ink3); margin-top: 7px; text-transform: uppercase; }
+.placa .obs { font-family: var(--mono); font-size: 11px; color: var(--ink3); margin-top: 4px; }
+.placa.nos .n { color: var(--nos); }
+.placa.eles .n { color: var(--eles); }
+.placa.entrada .n { color: var(--entrada); }
+.placa.feito .n { color: var(--feito); }
+
+/* ============================================================
+   LINHA DE OFERTA — a foto passa a ter peso.
+   Ela era 74px num painel cujo assunto É o produto. Agora 104px
+   e encostada na borda do poço: o olho entra pela imagem.
+   ============================================================ */
+.linha-item { display: grid; grid-template-columns: 104px 1fr auto; gap: 14px; padding: 12px; align-items: start; }
+.linha-item:hover { background: rgba(255, 255, 255, 0.018); }
+.linha-item > img { width: 104px; height: 104px; border-radius: 10px; object-fit: cover; background: #0b0f14; }
+.linha-item .corpo { min-width: 0; }
+.linha-item .acoes { display: flex; flex-direction: column; gap: 6px; }
+
+/* Linha sem imagem (canal, falha, correlação): a primeira coluna some. */
+.linha-item.sem-foto { grid-template-columns: 1fr auto; }
+
+.precos { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.agora { font-family: var(--display); font-size: 23px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; }
+.antes { font-family: var(--mono); font-size: 13px; color: var(--ink3); text-decoration: line-through; }
+.queda { font-family: var(--mono); font-size: 11.5px; padding: 3px 8px; border-radius: 6px; background: var(--feito-fraco); color: var(--feito); }
+.monitorando { font-family: var(--mono); font-size: 11.5px; color: var(--ink3); }
+
+.meta { font-family: var(--mono); font-size: 11.5px; color: var(--ink3); margin-top: 7px; display: flex; gap: 12px; flex-wrap: wrap; }
+.meta b { color: var(--ink2); font-weight: 500; }
+.copy { font-size: 13px; color: var(--ink2); margin-top: 9px; white-space: pre-wrap; max-height: 80px; overflow: hidden; border-left: 2px solid var(--line-forte); padding-left: 10px; }
+
+/* ============================================================
+   ETIQUETAS — sempre com texto. Nunca cor sozinha.
+   ============================================================ */
+.tag { font-family: var(--mono); font-size: 10px; padding: 2px 7px; border-radius: 5px; letter-spacing: 0.04em; white-space: nowrap; display: inline-block; vertical-align: middle; }
+.tag.nos { background: var(--nos-fraco); color: var(--nos); }
+.tag.eles { background: var(--eles-fraco); color: var(--eles); }
+.tag.entrada { background: var(--entrada-fraco); color: var(--entrada); }
+.tag.feito { background: var(--feito-fraco); color: var(--feito); }
+.tag.corte { background: var(--corte-fraco); color: #ff8a76; }
+.tag.neutro { background: rgba(255, 255, 255, 0.05); color: var(--ink3); }
+
+.ponto-status { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { font-family: var(--mono); font-size: 11.5px; padding: 6px 11px; border-radius: 8px; border: 1px solid var(--line); display: inline-flex; gap: 8px; align-items: center; background: var(--panel); }
+
+/* ============================================================
+   CONTROLES
+   ============================================================ */
+label { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink3); margin: 0 0 5px; }
+input, select, textarea {
+  width: 100%;
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 14px;
+  padding: 9px 11px;
+}
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--nos); }
+input::placeholder { color: var(--ink3); }
+
+.btn { font-family: var(--mono); font-size: 12.5px; border: 0; border-radius: var(--r-sm); padding: 9px 14px; cursor: pointer; background: var(--nos); color: #1a1206; font-weight: 600; white-space: nowrap; }
+.btn:hover { filter: brightness(1.08); }
+.btn.fantasma { background: transparent; color: var(--ink2); border: 1px solid var(--line); }
+.btn.fantasma:hover { border-color: var(--line-forte); color: var(--ink); filter: none; }
+.btn.perigo { background: transparent; color: var(--ink2); border: 1px solid var(--line); }
+.btn.perigo:hover { border-color: var(--corte); color: #ff8a76; filter: none; }
+.btn.pequeno { font-size: 11.5px; padding: 6px 10px; }
+.btn:disabled { opacity: 0.45; cursor: progress; filter: none; }
+
+.pilula { font-family: var(--mono); font-size: 12px; padding: 7px 13px; border-radius: 20px; border: 1px solid var(--line); background: var(--well); color: var(--ink2); cursor: pointer; }
+.pilula[aria-pressed="true"] { border-color: var(--nos); color: var(--ink); background: var(--nos-fraco); }
+
+.filtros { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 14px; margin-bottom: 16px; }
+.filtros .grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(152px, 1fr)); gap: 10px; }
+.filtros .acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+.alternar { display: flex; gap: 8px; flex-wrap: wrap; }
+.linha-campos { display: flex; gap: 10px; flex-wrap: wrap; }
+.linha-campos > * { flex: 1; min-width: 152px; }
+
+/* ============================================================
+   TABELA
+   ============================================================ */
+.rolagem { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+th { text-align: left; color: var(--ink3); font-weight: 500; letter-spacing: 0.07em; text-transform: uppercase; font-size: 10px; padding: 9px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 9px 10px; border-bottom: 1px solid var(--line); color: var(--ink2); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+tr:hover td { background: rgba(255, 255, 255, 0.02); }
+
+/* ============================================================
+   ESTADO VAZIO (decisão 3)
+   Mesmo peso do conteúdo. Diz o que está acontecendo, por que,
+   e termina numa ação. Sem caixa tracejada, sem "—".
+   ============================================================ */
+.vazio { padding: 34px 22px; text-align: center; border-radius: var(--r); background: var(--well); box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.4); }
+.vazio h3 { font-family: var(--display); font-size: 19px; font-weight: 600; margin: 0 0 6px; color: var(--ink); }
+.vazio p { color: var(--ink3); font-size: 13.5px; margin: 0 auto 16px; max-width: 46ch; line-height: 1.5; }
+.vazio .btn { margin: 0 4px; }
+/* Falha de carregamento é um vazio com causa — mostra o erro cru,
+   porque "não carregou" sem motivo já custou horas neste projeto. */
+.vazio.erro { box-shadow: inset 0 0 0 1px rgba(240, 80, 58, 0.35); }
+.vazio.erro h3 { color: #ff8a76; }
+.vazio.erro code { font-family: var(--mono); font-size: 11.5px; color: var(--ink2); display: block; margin-bottom: 14px; word-break: break-word; }
+
+.nota { font-size: 12.5px; color: var(--ink3); margin-top: 7px; }
+.ok { color: var(--feito); }
+.alerta { color: var(--nos); }
+.err { color: #ff8a76; }
+
+.qr { text-align: center; margin-top: 14px; }
+.qr img { width: 226px; height: 226px; background: #fff; border-radius: 10px; padding: 8px; }
+.lista-marcar { max-height: 240px; overflow-y: auto; border-radius: var(--r-sm); background: var(--well); padding: 6px; margin-top: 8px; }
+.lista-marcar label { display: flex; gap: 9px; align-items: center; padding: 8px; border-radius: 6px; font-size: 14px; cursor: pointer; font-family: var(--body); text-transform: none; letter-spacing: 0; color: var(--ink); margin: 0; }
+.lista-marcar label:hover { background: rgba(255, 255, 255, 0.03); }
+.lista-marcar input { width: auto; accent-color: var(--nos); }
+
+/* ============================================================
+   CELULAR — de verdade, não só "não quebra".
+   ============================================================ */
+@media (max-width: 720px) {
+  .wrap { padding: 18px 14px 60px; }
+  nav { position: static; }
+  .funil .trilha { height: auto; flex-direction: column; }
+  .funil .faixa { min-height: 58px; }
+  .linha-item { grid-template-columns: 76px 1fr; }
+  .linha-item > img { width: 76px; height: 76px; }
+  .linha-item .acoes { grid-column: 1 / -1; flex-direction: row; }
+  .dumbbell .linha { grid-template-columns: 1fr; gap: 6px; }
+  .dumbbell .valor { text-align: left; }
+  /* Filtros dobrados: viram um <details> e param de ocupar meia tela. */
+  .filtros .grade { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 420px) {
+  .filtros .grade { grid-template-columns: 1fr; }
+  .placar { grid-template-columns: 1fr 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

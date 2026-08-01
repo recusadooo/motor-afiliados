@@ -1,0 +1,77 @@
+{
+  "name": "Coletor de grupos — inteligência de mercado",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "coletor-grupos",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-evolution",
+      "name": "Evolution manda a mensagem",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-320, 0],
+      "webhookId": "coletor-grupos"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "/*\n * Traduz o payload MESSAGES_UPSERT da Evolution para o formato da\n * ingestão do motor, e DESCARTA o que não interessa.\n *\n * LGPD: `participant` e `pushName` (telefone e nome de quem postou)\n * existem no payload e são deliberadamente ignorados. Só o conteúdo\n * da oferta atravessa este nó. O motor ainda faz uma segunda limpeza\n * do lado dele — camada dupla, de propósito.\n */\nconst saida = [];\n\nfor (const item of $input.all()) {\n  const p = item.json?.body ?? item.json ?? {};\n  if (p.event !== 'messages.upsert') continue;\n\n  const d = p.data ?? {};\n  const key = d.key ?? {};\n  if (key.fromMe) continue;                       // não é oferta de concorrente\n\n  const jid = key.remoteJid ?? '';\n  if (!jid.endsWith('@g.us')) continue;           // só grupo, nunca conversa privada\n\n  const m = d.message ?? {};\n  const texto =\n    m.conversation ??\n    m.extendedTextMessage?.text ??\n    m.imageMessage?.caption ??\n    m.videoMessage?.caption ??\n    '';\n  if (!texto.trim()) continue;                    // figurinha, áudio, entrou/saiu\n\n  saida.push({\n    json: {\n      groupJid: jid,\n      text: texto,\n      // A Evolution manda em SEGUNDOS. O motor aceita os dois e normaliza.\n      postedAt: d.messageTimestamp ?? null,\n      hasImage: m.imageMessage != null,\n      instanceRef: p.instance ?? null,\n    },\n  });\n}\n\nreturn saida;"
+      },
+      "id": "normaliza",
+      "name": "Só o conteúdo da oferta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-60, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.MOTOR_INGEST_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 20,
+              "batchInterval": 500
+            }
+          }
+        }
+      },
+      "id": "entrega",
+      "name": "Entrega ao motor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [200, 0],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## Coletor de grupos\n\nO que faz: recebe cada mensagem dos grupos observados (via webhook da Evolution), joga fora o que não é oferta, e entrega ao motor.\n\n**Antes de ativar:**\n\n1. Copie o endereço em **Painel → Grupos observados → entrada do n8n** e ponha na variável de ambiente `MOTOR_INGEST_URL` do n8n (ou cole direto no nó \"Entrega ao motor\"). O segredo vai na própria URL — trate como senha.\n2. Copie a URL de produção deste webhook e configure-a na instância da Evolution do número **de escuta** (evento `MESSAGES_UPSERT`).\n3. Cadastre os grupos no painel. Grupo não cadastrado é recusado pelo motor de propósito — é assim que você liga e desliga a observação sem mexer aqui.\n\n**Não republique nada daqui.** Este fluxo é só leitura: copiar a copy de outro afiliado é proibido pelos termos da Shopee. O que se aprende é o critério (o quê, quando, com que margem), não o texto.",
+        "height": 420,
+        "width": 460,
+        "color": 6
+      },
+      "id": "nota",
+      "name": "Como usar",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-320, 140]
+    }
+  ],
+  "connections": {
+    "Evolution manda a mensagem": {
+      "main": [[{ "node": "Só o conteúdo da oferta", "type": "main", "index": 0 }]]
+    },
+    "Só o conteúdo da oferta": {
+      "main": [[{ "node": "Entrega ao motor", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

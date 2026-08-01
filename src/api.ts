@@ -13,9 +13,17 @@ import { runCaptureExclusivo, capturaEmAndamento } from './capture/shopeeFeed';
 import {
   COOKIE, cabecalhosSeguranca, limiteApi, autenticar, criarSessao, sessaoValida, lerCookie,
   garantirSenha, trocarSenha, usuarioPainel, tokenWebhook, ipDe, loginBloqueado,
-  registrarTentativaFalha, limparTentativas,
+  registrarTentativaFalha, limparTentativas, tokenIngestao, girarTokenIngestao,
+  segredoConfere,
 } from './security';
 import { paginaLogin } from './loginPage';
+import { ingestPost, type IngestInput } from './intel/ingest';
+import { runSweepExclusivo, varreduraEmAndamento } from './intel/observe';
+import { matchPendingPosts, matchOnePost } from './intel/match';
+import {
+  resumoDiario, correlacaoDoDia, repeticaoDeProdutos,
+  distribuicaoPorHora, coberturaPorGrupo, perfilDeEscolha,
+} from './intel/report';
 
 /**
  * API do backend (roda no VPS). Serve:
@@ -37,8 +45,15 @@ app.use(express.json({ limit: '2mb' }));
  * Lembrete honesto: o domínio é público (aparece nos logs de Certificate
  * Transparency ao emitir o TLS), então "aberto" = qualquer um que ache a URL.
  */
-// Atrás do Traefik: o IP real vem no X-Forwarded-For.
-app.set('trust proxy', true);
+/*
+ * Atrás do Traefik. `true` confiava na cadeia INTEIRA de X-Forwarded-For, que é
+ * cabeçalho controlado pelo cliente: bastava rotacioná-lo para ter uma "chave"
+ * nova a cada requisição e anular tanto o freio de força bruta do login quanto
+ * o teto por IP — inclusive na rota de ingestão, cujo único freio contra
+ * tentativa de adivinhar o token é esse. `1` = confia em exatamente um salto (o
+ * Traefik) e resolve o IP real como o último hop confiável.
+ */
+app.set('trust proxy', 1);
 app.use(cabecalhosSeguranca);
 
 /** Rotas que NÃO exigem sessão. O webhook tem o próprio segredo (na URL). */
@@ -48,7 +63,10 @@ function livre(caminho: string): boolean {
     caminho === '/login' ||
     caminho === '/api/login' ||
     caminho === '/api/logout' ||
-    caminho.startsWith('/webhook/')
+    caminho.startsWith('/webhook/') ||
+    // Ingestão de inteligência: quem chama é o n8n, que não tem sessão. O
+    // segredo vai na URL, igual ao webhook da Evolution e pelo mesmo motivo.
+    caminho.startsWith('/api/intel/ingest/')
   );
 }
 
@@ -170,7 +188,7 @@ async function urlWebhook(): Promise<string | null> {
  * O app registra a URL com token automaticamente ao provisionar a instância.
  */
 app.post('/webhook/evolution/:token', wrap(async (req: Request, res: Response) => {
-  if (req.params.token !== (await tokenWebhook())) {
+  if (!segredoConfere(req.params.token, await tokenWebhook())) {
     log.warn('webhook com token inválido', { ip: ipDe(req) });
     res.status(401).json({ error: 'token inválido' });
     return;
@@ -528,13 +546,287 @@ app.put('/api/settings', wrap(async (req: Request, res: Response) => {
   res.json({ ok: true, applied, settings: await settingsStatus() });
 }));
 
+// ============================================================
+// INTELIGÊNCIA DE MERCADO
+// Engenharia reversa do critério dos concorrentes: cruza o que a API da Shopee
+// ofereceu com o que os grupos postaram, no mesmo eixo do tempo.
+// ============================================================
+
+// ---- Grupos observados (o painel liga/desliga; o fluxo do n8n lê daqui) ----
+app.get('/api/intel/groups', wrap(async (_req: Request, res: Response) => {
+  res.json(
+    await query(
+      `SELECT id, group_jid, display_name, kind, instance_ref, is_active, notes,
+              posts_count, last_post_at, created_at
+         FROM intel_groups ORDER BY is_active DESC, posts_count DESC, created_at`,
+    ),
+  );
+}));
+
+const TIPOS_GRUPO = ['promo', 'nicho', 'misto', 'proprio'];
+
+app.post('/api/intel/groups', wrap(async (req: Request, res: Response) => {
+  const jid = String(req.body?.group_jid ?? '').trim();
+  if (!jid.endsWith('@g.us')) {
+    return res.status(400).json({ error: 'group_jid deve terminar em @g.us' });
+  }
+  const kind = TIPOS_GRUPO.includes(req.body?.kind) ? req.body.kind : 'promo';
+  const row = await queryOne<{ id: string }>(
+    `INSERT INTO intel_groups (group_jid, display_name, kind, instance_ref, notes)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (group_jid) DO UPDATE
+       SET display_name = COALESCE(EXCLUDED.display_name, intel_groups.display_name),
+           kind         = EXCLUDED.kind,
+           instance_ref = COALESCE(EXCLUDED.instance_ref, intel_groups.instance_ref),
+           notes        = COALESCE(EXCLUDED.notes, intel_groups.notes),
+           is_active    = true
+     RETURNING id`,
+    [
+      jid,
+      req.body?.display_name ? String(req.body.display_name) : null,
+      kind,
+      req.body?.instance_ref ? String(req.body.instance_ref) : null,
+      req.body?.notes ? String(req.body.notes) : null,
+    ],
+  );
+  res.json({ ok: true, id: row?.id });
+}));
+
+// Registra VÁRIOS grupos de uma vez (marcados na lista da Evolution).
+app.post('/api/intel/groups/bulk', wrap(async (req: Request, res: Response) => {
+  const { groups, kind, instance_ref } = req.body ?? {};
+  if (!Array.isArray(groups) || groups.length === 0) {
+    return res.status(400).json({ error: 'informe os grupos' });
+  }
+  const tipo = TIPOS_GRUPO.includes(kind) ? kind : 'promo';
+  let created = 0;
+  for (const g of groups as Array<{ id: string; subject?: string }>) {
+    if (!g?.id || !String(g.id).endsWith('@g.us')) continue;
+    await query(
+      `INSERT INTO intel_groups (group_jid, display_name, kind, instance_ref)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (group_jid) DO UPDATE
+         SET display_name = COALESCE(EXCLUDED.display_name, intel_groups.display_name),
+             kind = EXCLUDED.kind, is_active = true`,
+      [g.id, g.subject || g.id, tipo, instance_ref ? String(instance_ref) : null],
+    );
+    created += 1;
+  }
+  res.json({ ok: true, created });
+}));
+
+app.patch('/api/intel/groups/:id', wrap(async (req: Request, res: Response) => {
+  const campos: string[] = [];
+  const params: unknown[] = [];
+  if (typeof req.body?.is_active === 'boolean') {
+    params.push(req.body.is_active);
+    campos.push(`is_active = $${params.length}`);
+  }
+  if (TIPOS_GRUPO.includes(req.body?.kind)) {
+    params.push(req.body.kind);
+    campos.push(`kind = $${params.length}`);
+  }
+  if (typeof req.body?.display_name === 'string') {
+    params.push(req.body.display_name);
+    campos.push(`display_name = $${params.length}`);
+  }
+  if (typeof req.body?.notes === 'string') {
+    params.push(req.body.notes);
+    campos.push(`notes = $${params.length}`);
+  }
+  if (!campos.length) return res.status(400).json({ error: 'nada para atualizar' });
+  params.push(req.params.id);
+  await query(`UPDATE intel_groups SET ${campos.join(', ')} WHERE id = $${params.length}`, params);
+  res.json({ ok: true });
+}));
+
+// Remove o grupo E os posts dele (ON DELETE CASCADE cuida de posts/matches).
+app.delete('/api/intel/groups/:id', wrap(async (req: Request, res: Response) => {
+  await query(`DELETE FROM intel_groups WHERE id = $1`, [req.params.id]);
+  res.json({ ok: true });
+}));
+
+/**
+ * INGESTÃO — é aqui que o fluxo do n8n entrega o que leu nos grupos.
+ * Sem sessão (o n8n não tem), com o segredo na URL. Aceita um objeto ou um
+ * array, porque no n8n é natural mandar um lote de itens de uma vez.
+ * Responde 200 mesmo para item recusado (repetido, grupo pausado): recusa não é
+ * erro de integração, e devolver 4xx faria o n8n marcar a execução como falha e
+ * tentar de novo para sempre.
+ */
+app.post('/api/intel/ingest/:token', wrap(async (req: Request, res: Response) => {
+  if (!segredoConfere(req.params.token, await tokenIngestao())) {
+    log.warn('ingestão com token inválido', { ip: ipDe(req) });
+    res.status(401).json({ error: 'token inválido' });
+    return;
+  }
+  const corpo = req.body;
+  const itens: unknown[] = Array.isArray(corpo) ? corpo : [corpo];
+  if (itens.length > 500) {
+    res.status(413).json({ error: 'lote grande demais (máx. 500 por chamada)' });
+    return;
+  }
+  const resultados = [];
+  for (const item of itens) {
+    try {
+      resultados.push(await ingestPost(item as IngestInput));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error('ingestão falhou num item', { err: msg });
+      resultados.push({ ok: false, reason: msg });
+    }
+  }
+  res.json({
+    ok: true,
+    recebidos: itens.length,
+    gravados: resultados.filter((r) => r.ok && r.postId).length,
+    resultados,
+  });
+}));
+
+// A URL completa da ingestão (com token) para colar no n8n + como girar o token.
+app.get('/api/intel/ingest-url', wrap(async (_req: Request, res: Response) => {
+  const cfg = loadConfig();
+  const base = cfg.PUBLIC_APP_URL?.replace(/\/$/, '');
+  res.json({
+    url: base ? `${base}/api/intel/ingest/${await tokenIngestao()}` : null,
+    aviso: base ? null : 'defina PUBLIC_APP_URL para o app saber a própria URL',
+  });
+}));
+
+app.post('/api/intel/ingest-url/rotate', wrap(async (_req: Request, res: Response) => {
+  const token = await girarTokenIngestao();
+  const cfg = loadConfig();
+  const base = cfg.PUBLIC_APP_URL?.replace(/\/$/, '');
+  log.warn('token de ingestão girado — reconfigure o fluxo do n8n');
+  res.json({ ok: true, url: base ? `${base}/api/intel/ingest/${token}` : null });
+}));
+
+// ---- Varredura (observação larga da API) ----
+app.get('/api/intel/sweeps', wrap(async (_req: Request, res: Response) => {
+  res.json(
+    await query(
+      `SELECT id, started_at, finished_at, trigger, keywords, observed, stats, error
+         FROM intel_sweeps ORDER BY started_at DESC LIMIT 12`,
+    ),
+  );
+}));
+
+app.post('/api/intel/sweep', wrap(async (_req: Request, res: Response) => {
+  if (varreduraEmAndamento()) {
+    res.status(409).json({ error: 'já existe uma varredura rodando' });
+    return;
+  }
+  res.status(202).json({ ok: true, msg: 'varredura iniciada' });
+  runSweepExclusivo('manual').catch((err) =>
+    log.error('varredura manual falhou', { err: err instanceof Error ? err.message : String(err) }),
+  );
+}));
+
+// Recorrelaciona posts pendentes sob demanda (depois de mexer nos limiares).
+app.post('/api/intel/rematch', wrap(async (req: Request, res: Response) => {
+  const todos = req.body?.todos === true;
+  if (todos) {
+    // Zera matched_at para reprocessar tudo com os limiares novos.
+    await query(`UPDATE intel_posts SET matched_at = NULL`);
+  }
+  const limite = Math.min(Math.max(Number(req.body?.limit ?? 500), 1), 5000);
+  res.status(202).json({ ok: true, msg: 'correlação iniciada' });
+  matchPendingPosts(limite).catch((err) =>
+    log.error('recorrelação falhou', { err: err instanceof Error ? err.message : String(err) }),
+  );
+}));
+
+app.post('/api/intel/posts/:id/rematch', wrap(async (req: Request, res: Response) => {
+  res.json(await matchOnePost(req.params.id!));
+}));
+
+// ---- Relatórios (é o dashboard de correlação) ----
+const dias = (v: unknown, def: number) => Math.min(Math.max(Number(v ?? def) || def, 1), 365);
+
+/**
+ * "Hoje" no fuso do dono, não em UTC. A virada do dia em UTC acontece às 21h de
+ * Brasília — sem isto, entre 21h e meia-noite o painel abriria já mostrando o
+ * dia seguinte, vazio, e pareceria que o motor parou.
+ *
+ * Via Intl e não subtraindo 3 horas: o Brasil não tem horário de verão desde
+ * 2019, então o offset fixo acerta hoje, mas é premissa que quebra calada.
+ * ('en-CA' é o locale que formata como YYYY-MM-DD.)
+ */
+const fmtDiaSP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' });
+const hojeNoFusoDoDono = () => fmtDiaSP.format(new Date());
+
+app.get('/api/intel/summary', wrap(async (req: Request, res: Response) => {
+  res.json(await resumoDiario(dias(req.query.dias, 14)));
+}));
+
+app.get('/api/intel/correlation', wrap(async (req: Request, res: Response) => {
+  const q = req.query as Record<string, string | undefined>;
+  res.json(
+    await correlacaoDoDia(q.dia && /^\d{4}-\d{2}-\d{2}$/.test(q.dia) ? q.dia : hojeNoFusoDoDono(), {
+      verdict: q.verdict || undefined,
+      groupId: q.groupId || undefined,
+      limit: q.limit ? Math.min(Number(q.limit), 500) : undefined,
+    }),
+  );
+}));
+
+/**
+ * Densidade do dia em baldes de 15 min — é o FUNDO do gráfico da travessia.
+ * Devolve contagem por balde em vez das linhas cruas porque um dia tem ~11 mil
+ * observações e o navegador não precisa de nenhuma delas para desenhar a faixa
+ * de densidade: precisa de 96 números.
+ */
+app.get('/api/intel/day-density', wrap(async (req: Request, res: Response) => {
+  const q = req.query as Record<string, string | undefined>;
+  const dia = q.dia && /^\d{4}-\d{2}-\d{2}$/.test(q.dia) ? q.dia : hojeNoFusoDoDono();
+
+  // Fuso do dono: a virada do dia em UTC cai às 21h de Brasília e jogaria as
+  // ofertas da noite para o dia seguinte.
+  const balde = (tabela: string, coluna: string) => `
+    SELECT floor(
+             (EXTRACT(HOUR FROM ${coluna} AT TIME ZONE 'America/Sao_Paulo') * 60
+            + EXTRACT(MINUTE FROM ${coluna} AT TIME ZONE 'America/Sao_Paulo')) / 15
+           )::int AS balde,
+           count(*)::int AS n
+      FROM ${tabela}
+     WHERE (${coluna} AT TIME ZONE 'America/Sao_Paulo')::date = $1::date
+     GROUP BY 1 ORDER BY 1`;
+
+  const [observacoes, posts] = await Promise.all([
+    query<{ balde: number; n: number }>(balde('api_observations', 'observed_at'), [dia]),
+    query<{ balde: number; n: number }>(balde('intel_posts', 'posted_at'), [dia]),
+  ]);
+  res.json({ dia, observacoes, posts });
+}));
+
+app.get('/api/intel/repeats', wrap(async (req: Request, res: Response) => {
+  const min = Math.max(Number(req.query.minVezes ?? 2) || 2, 2);
+  res.json(await repeticaoDeProdutos(dias(req.query.dias, 30), min));
+}));
+
+app.get('/api/intel/hours', wrap(async (req: Request, res: Response) => {
+  res.json(await distribuicaoPorHora(dias(req.query.dias, 14)));
+}));
+
+app.get('/api/intel/coverage', wrap(async (req: Request, res: Response) => {
+  res.json(await coberturaPorGrupo(dias(req.query.dias, 14)));
+}));
+
+app.get('/api/intel/profile', wrap(async (req: Request, res: Response) => {
+  res.json(await perfilDeEscolha(dias(req.query.dias, 14)));
+}));
+
 /**
  * Painel de página única: as abas são caminhos de verdade (/fila, /conexoes,
  * /config, /falhas). Sem este fallback, abrir a URL da aba direto no navegador
  * dava 404 (reclamação real do dono). /api, /health, /webhook e /ws seguem
  * intactos — só o que NÃO é rota de API cai no index.html.
  */
-const ABAS = ['/', '/fila', '/feed', '/conexoes', '/config', '/falhas', '/ciclos'];
+const ABAS = [
+  '/', '/fila', '/feed', '/conexoes', '/config', '/falhas', '/ciclos',
+  '/inteligencia', '/grupos',
+];
 app.get(ABAS, (_req: Request, res: Response) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });

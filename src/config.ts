@@ -150,6 +150,14 @@ const schema = z.object({
   // disso, o ciclo é PULADO. É o que garante que a fila nunca explode, qualquer
   // que seja a cadência (o gotejamento posta ~2-3/h; capturar mais é acumular).
   CAPTURE_BACKLOG_MAX: int(30),
+  // Validade da oferta na fila. Duas razões, e a segunda é a que dói:
+  //  1) preço envelhece — postar o preço de 3 dias atrás é postar mentira;
+  //  2) sem isso a trava de backlog vira IMPASSE: sem canal conectado nada
+  //     esvazia a fila, a fila fica >= CAPTURE_BACKLOG_MAX para sempre e a
+  //     captura nunca mais roda. Aconteceu de verdade: 7 dias parado, 336
+  //     ciclos pulados, com o container de pé e /health respondendo 200.
+  // 0 desliga o vencimento (volta ao comportamento antigo, com o impasse).
+  OFFER_MAX_AGE_HOURS: int(48),
   // Prova social mínima (quando a Shopee informa): produto sem venda/nota é aposta.
   CAPTURE_MIN_SALES: int(20),
   CAPTURE_MIN_RATING: num(4),
@@ -191,6 +199,46 @@ const schema = z.object({
 
   // ---- Aprovação: 100% automático (true) ou fila manual (false) ----
   AUTO_APPROVE: bool(true),
+
+  // ---- Inteligência de mercado (observação larga + correlação) ----
+  // A captura de produção é ESTREITA de propósito (16 keywords, top 1, teto 10).
+  // A observação é o oposto: larga e sem filtro, só para registrar o cardápio
+  // que a Shopee ofereceu. São coisas diferentes e por isso rodam separadas.
+  INTEL_ENABLED: bool(true),
+  // Minuto 7 para não cair junto com a captura (*/30). A cada 2h: 12 varreduras
+  // x 48 keywords = 576 chamadas/dia, que somadas às ~768 da produção ficam bem
+  // abaixo do teto de 2500/dia do freio da Shopee.
+  INTEL_SWEEP_CRON: str('7 */2 * * *'),
+  INTEL_SWEEP_LIMIT: int(20), // ofertas por keyword na varredura
+  // Poda: sem isso a tabela cresce ~11 mil linhas/dia para sempre.
+  INTEL_RETENTION_DAYS: int(90),
+  // Similaridade mínima de título (0..1) para o veredito 'casado'.
+  //
+  // 0.30 vem de MEDIÇÃO, não de chute. Com a referência da API
+  // "Air Fryer Mondial 5L Family Inox", a distribuição real foi:
+  //   0.750  "Air Fryer Mondial 5 Litros Family Inox"      mesmo produto
+  //   0.656  "Air Fryer Mondial 5L"                         mesmo produto
+  //   0.512  "Fritadeira Air Fryer Mondial 5L"              mesmo produto
+  //   0.328  "Fritadeira Eletrica Sem Oleo Mondial Family"  MESMO produto
+  //   0.196  "Air Fryer Philips Walita 4L"                  marca diferente (!)
+  //   0.014  "Escova de Dente Oral-B"                       nada a ver
+  // O default anterior (0.42) rejeitava o caso de 0.328 — que é justamente o
+  // caso comum: grupo de promoção reescreve o título com as próprias palavras.
+  // 0.30 fica acima do falso-positivo mais perigoso (0.196, mesma categoria
+  // com outra marca) e abaixo do acerto mais difícil.
+  //
+  // RESSALVA HONESTA: isso é uma amostra pequena. Depois da primeira semana de
+  // dados reais, olhe os quase-acertos no painel (veredito 'sem_casamento' que
+  // ainda traz candidato) e recalibre — o botão "recorrelacionar" reprocessa
+  // tudo com o limiar novo.
+  INTEL_MATCH_MIN_SIM: num(0.3),
+  // Diferença de preço tolerada entre o post e a observação (0.15 = 15%).
+  INTEL_MATCH_PRICE_TOLERANCE: num(0.15),
+  // Janela de busca para trás: um post de hoje procura observações até N horas antes.
+  INTEL_MATCH_WINDOW_HOURS: int(72),
+  // Margem entre o melhor e o 2º melhor candidato. Se a diferença for menor que
+  // isso, o veredito é 'ambiguo' em vez de escolher no par ou ímpar.
+  INTEL_MATCH_AMBIGUITY_MARGIN: num(0.06),
 
   // ---- Senha do painel (OPCIONAL) ----
   // Vazio = painel aberto (escolha do dono, uso pessoal). Preencher os DOIS

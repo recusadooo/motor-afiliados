@@ -82,6 +82,57 @@ memória RAM, placa de vídeo, celular, SSD, headset…), **casa/eletrodoméstic
 (maionese, ketchup, mostarda, azeite, café, chocolate…). ~48 palavras. Edite no `.env`
 quando quiser afinar (mais palavras = mais ofertas e mais chamadas à API).
 
+## 🟣 6. Inteligência de mercado — o que depende de você
+
+O motor agora observa o **cardápio inteiro** da Shopee (varredura larga a cada 2h, sem
+filtro) e cruza com o que os grupos de promoção postam, para descobrir o critério de escolha
+dos concorrentes. Duas pontas: uma já funciona sozinha, a outra precisa de você.
+
+**Funciona sozinha (nada a fazer):** a varredura da API. Ela começa no próximo boot e passa
+a registrar tudo que a Shopee oferece. Quanto mais cedo começar, mais histórico você terá
+quando for analisar — **isso não é recuperável depois**, então não adianta adiar.
+
+**Precisa de você:** entrar nos grupos de promoção com o número que só escuta e cadastrar
+cada um no painel (aba **Grupos observados**). Sem grupo cadastrado não há a segunda ponta,
+e sem as duas não existe correlação.
+
+Passo a passo:
+
+1. Use um número **separado** do que posta. Se o número de escuta for banido, você não perde
+   o de disparo junto. (Entrar em grupo e só ler é risco baixo, mas não é zero.)
+2. Entre nos grupos pelo celular, normalmente.
+3. Painel → **Conexões** → conecte esse número → **Listar grupos** → marque os grupos →
+   **Registrar para observação** (o botão ao lado do "Registrar para disparo").
+4. Painel → **Grupos observados** → ajuste o **tipo** de cada grupo.
+
+**O tipo importa mais do que parece.** Se você monitorar só grupos generalistas, vai
+aprender o critério de quem vende qualquer coisa — achadinho de R$9,90, o que tem volume — e
+isso não transfere para o seu nicho. Se monitorar só do nicho, a amostra demora mais a
+encher. Marque os dois desde o começo: depois não dá para separar o que não foi marcado.
+
+**Quando olhar o resultado:** dê uns 7 dias. Antes disso a amostra é pequena demais para
+qualquer conclusão, e o painel vai mostrar poucos casamentos — o que parece defeito e não é.
+
+**Se quiser usar o n8n** em vez do webhook direto (para poder ajustar a regra de coleta sem
+deploy), o fluxo importável está em `n8n/coletor-grupos.json` — ver `n8n/README.md`. Não é
+obrigatório: o motor recebe direto da Evolution.
+
+## ⚠️ Correção importante nesta rodada — o motor estava parado
+
+Achado ao verificar a produção: o motor ficou **7 dias sem capturar nada**, com o container
+de pé e o `/health` respondendo 200. Não era bug de código, era impasse:
+
+```
+sem canal de WhatsApp → nada esvazia a fila → fila trava em 34 (teto 30)
+      → a trava de backlog pula o ciclo → captura nunca mais roda
+```
+
+Cada peça fazia o que devia; juntas, travaram. **Corrigido:** oferta na fila agora vence por
+idade (`OFFER_MAX_AGE_HOURS`, padrão 48h). Isso destrava a fila e resolve um segundo
+problema que ninguém tinha notado — as 34 ofertas presas tinham preço de uma semana atrás, e
+teriam ido ao ar como se fossem de hoje. O log do ciclo agora também avisa em voz alta
+quando não há canal poster ativo.
+
 ## 🔵 Fase posterior (quando quiser)
 - Dashboard Next.js na Vercel (o painel atual já funciona servido pela API).
 - Poster de Telegram (arquitetura já é canal-agnóstica).

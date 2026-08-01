@@ -55,6 +55,8 @@ strong{color:var(--ink)}
 </li>
 <li><a href="#4-tudo-pela-interface-aba-config">🟢 4. Tudo pela interface (aba Config)</a></li>
 <li><a href="#5-seu-nicho-palavras-chave-aplicado">✅ 5. Seu nicho — palavras-chave (APLICADO)</a></li>
+<li><a href="#6-inteligencia-de-mercado-o-que-depende-de-voce">🟣 6. Inteligência de mercado — o que depende de você</a></li>
+<li><a href="#correcao-importante-nesta-rodada-o-motor-estava-parado">⚠️ Correção importante nesta rodada — o motor estava parado</a></li>
 <li><a href="#fase-posterior-quando-quiser">🔵 Fase posterior (quando quiser)</a></li>
 <li><a href="#itens-do-codigo-a-validar-ao-vivo-baixo-risco">Itens do código a validar ao vivo (baixo risco)</a></li>
 </ul>
@@ -133,6 +135,45 @@ memória RAM, placa de vídeo, celular, SSD, headset…), <strong>casa/eletrodom
 (geladeira, fogão, air fryer, liquidificador, aspirador…) e <strong>comida/condimentos</strong>
 (maionese, ketchup, mostarda, azeite, café, chocolate…). ~48 palavras. Edite no <code>.env</code>
 quando quiser afinar (mais palavras = mais ofertas e mais chamadas à API).</p>
+<h2 id="6-inteligencia-de-mercado-o-que-depende-de-voce">🟣 6. Inteligência de mercado — o que depende de você</h2>
+<p>O motor agora observa o <strong>cardápio inteiro</strong> da Shopee (varredura larga a cada 2h, sem
+filtro) e cruza com o que os grupos de promoção postam, para descobrir o critério de escolha
+dos concorrentes. Duas pontas: uma já funciona sozinha, a outra precisa de você.</p>
+<p><strong>Funciona sozinha (nada a fazer):</strong> a varredura da API. Ela começa no próximo boot e passa
+a registrar tudo que a Shopee oferece. Quanto mais cedo começar, mais histórico você terá
+quando for analisar — <strong>isso não é recuperável depois</strong>, então não adianta adiar.</p>
+<p><strong>Precisa de você:</strong> entrar nos grupos de promoção com o número que só escuta e cadastrar
+cada um no painel (aba <strong>Grupos observados</strong>). Sem grupo cadastrado não há a segunda ponta,
+e sem as duas não existe correlação.</p>
+<p>Passo a passo:</p>
+<ol>
+<li>Use um número <strong>separado</strong> do que posta. Se o número de escuta for banido, você não perde
+   o de disparo junto. (Entrar em grupo e só ler é risco baixo, mas não é zero.)</li>
+<li>Entre nos grupos pelo celular, normalmente.</li>
+<li>Painel → <strong>Conexões</strong> → conecte esse número → <strong>Listar grupos</strong> → marque os grupos →
+   <strong>Registrar para observação</strong> (o botão ao lado do "Registrar para disparo").</li>
+<li>Painel → <strong>Grupos observados</strong> → ajuste o <strong>tipo</strong> de cada grupo.</li>
+</ol>
+<p><strong>O tipo importa mais do que parece.</strong> Se você monitorar só grupos generalistas, vai
+aprender o critério de quem vende qualquer coisa — achadinho de R$9,90, o que tem volume — e
+isso não transfere para o seu nicho. Se monitorar só do nicho, a amostra demora mais a
+encher. Marque os dois desde o começo: depois não dá para separar o que não foi marcado.</p>
+<p><strong>Quando olhar o resultado:</strong> dê uns 7 dias. Antes disso a amostra é pequena demais para
+qualquer conclusão, e o painel vai mostrar poucos casamentos — o que parece defeito e não é.</p>
+<p><strong>Se quiser usar o n8n</strong> em vez do webhook direto (para poder ajustar a regra de coleta sem
+deploy), o fluxo importável está em <code>n8n/coletor-grupos.json</code> — ver <code>n8n/README.md</code>. Não é
+obrigatório: o motor recebe direto da Evolution.</p>
+<h2 id="correcao-importante-nesta-rodada-o-motor-estava-parado">⚠️ Correção importante nesta rodada — o motor estava parado</h2>
+<p>Achado ao verificar a produção: o motor ficou <strong>7 dias sem capturar nada</strong>, com o container
+de pé e o <code>/health</code> respondendo 200. Não era bug de código, era impasse:</p>
+<pre><code>sem canal de WhatsApp → nada esvazia a fila → fila trava em 34 (teto 30)
+      → a trava de backlog pula o ciclo → captura nunca mais roda
+</code></pre>
+<p>Cada peça fazia o que devia; juntas, travaram. <strong>Corrigido:</strong> oferta na fila agora vence por
+idade (<code>OFFER_MAX_AGE_HOURS</code>, padrão 48h). Isso destrava a fila e resolve um segundo
+problema que ninguém tinha notado — as 34 ofertas presas tinham preço de uma semana atrás, e
+teriam ido ao ar como se fossem de hoje. O log do ciclo agora também avisa em voz alta
+quando não há canal poster ativo.</p>
 <h2 id="fase-posterior-quando-quiser">🔵 Fase posterior (quando quiser)</h2>
 <ul>
 <li>Dashboard Next.js na Vercel (o painel atual já funciona servido pela API).</li>
