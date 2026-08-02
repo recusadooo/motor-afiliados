@@ -68,15 +68,6 @@ export async function shopeeOfferV2(
   return data.shopeeOfferV2;
 }
 
-/**
- * Erro de SCHEMA GraphQL (nome de tipo/campo errado) — o único caso em que vale
- * tentar a forma inline. Rede, timeout e rate limit NÃO entram aqui.
- */
-function pareceErroDeSchema(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
-  if (/rate limit|10030|timeout|abort|socket|econn|network|fetch failed/.test(msg)) return false;
-  return /unknown type|cannot query|unknown argument|variable|syntax|graphql|validation|400/.test(msg);
-}
 
 /**
  * Gera link de afiliado a partir de qualquer URL Shopee.
@@ -84,25 +75,26 @@ function pareceErroDeSchema(err: unknown): boolean {
  * subIds: máximo de 5 (aparecem como utmContent no relatório de conversão).
  */
 export async function generateShortLink(originUrl: string, subIds: string[] = []): Promise<string> {
-  const query = `mutation GenShort($input: ShopeeGenerateShortLinkInput!) {
-    generateShortLink(input: $input) { shortLink }
+  /*
+   * INLINE, não variável tipada — e isto foi MEDIDO, não escolhido.
+   *
+   * A versão anterior tentava primeiro `mutation($input: ShopeeGenerateShortLinkInput!)`
+   * e só caía para inline quando o schema reclamava. O schema reclama SEMPRE:
+   * esse nome de tipo não existe. Verificado ao processar oferta real —
+   * "Unknown type ShopeeGenerateShortLinkInput" saía no log a cada oferta.
+   *
+   * O custo não era só o log: eram DUAS chamadas à API por link (a tipada que
+   * falha + a inline que funciona), na conta de afiliado, que é o ativo mais
+   * frágil do projeto. E um erro que aparece em toda oferta treina qualquer um
+   * a ignorar o log — mascarando o erro seguinte, que pode ser de verdade.
+   *
+   * Injeção não é preocupação aqui: `JSON.stringify` escapa a URL e os subIds,
+   * e os dois são gerados por nós, não vêm de entrada externa.
+   */
+  const inline = `mutation {
+    generateShortLink(input: { originUrl: ${JSON.stringify(originUrl)}, subIds: ${JSON.stringify(subIds.slice(0, 5))} }) { shortLink }
   }`;
-  const variables = { input: { originUrl, subIds: subIds.slice(0, 5) } };
-  try {
-    const data = await shopeeGraphQL<{ generateShortLink: { shortLink: string } }>(query, variables);
-    return data.generateShortLink.shortLink;
-  } catch (err) {
-    // O nome exato do tipo do input ($ShopeeGenerateShortLinkInput) ainda não foi
-    // confirmado por introspection. Fallback: tentar inline sem variável tipada.
-    // SÓ para erro de SCHEMA. Antes, qualquer falha (rede, 429, indisponibilidade)
-    // disparava a segunda cadeia de retentativas — 8 requisições por link, e
-    // justamente quando a API já estava reclamando de volume.
-    if (!pareceErroDeSchema(err)) throw err;
-    const inlineSubIds = JSON.stringify(subIds.slice(0, 5));
-    const inline = `mutation {
-      generateShortLink(input: { originUrl: ${JSON.stringify(originUrl)}, subIds: ${inlineSubIds} }) { shortLink }
-    }`;
-    const data = await shopeeGraphQL<{ generateShortLink: { shortLink: string } }>(inline);
-    return data.generateShortLink.shortLink;
-  }
+  const data = await shopeeGraphQL<{ generateShortLink: { shortLink: string } }>(inline);
+  return data.generateShortLink.shortLink;
 }
+
