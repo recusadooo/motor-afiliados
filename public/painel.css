@@ -439,6 +439,15 @@ td { padding: 9px 10px; border-bottom: 1px solid var(--line); color: var(--ink2)
 tr:last-child td { border-bottom: 0; }
 tr:hover td { background: rgba(255, 255, 255, 0.02); }
 
+/*
+ * Ciclo pulado: a linha existe (é informação — "por que não capturei às 22h"),
+ * mas não é um ciclo. Recua para não competir com as linhas que têm número de
+ * verdade. Distinção por OPACIDADE, não por cor: nenhuma das 5 cores de dado
+ * pode ser gasta com estado de linha.
+ */
+tr.linha-pulada td { opacity: 0.55; }
+tr.linha-pulada:hover td { opacity: 1; }
+
 /* ============================================================
    ESTADO VAZIO (decisão 3)
    Mesmo peso do conteúdo. Diz o que está acontecendo, por que,

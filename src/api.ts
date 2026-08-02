@@ -350,8 +350,17 @@ app.get('/api/stats', wrap(async (_req: Request, res: Response) => {
 
 app.get('/api/dlq', wrap(async (_req: Request, res: Response) => {
   const rows = await query(
-    `SELECT id, orig_queue, error, channel_id, status, created_at FROM dlq
-      WHERE status='pending_review' ORDER BY created_at DESC LIMIT 100`,
+    /*
+     * O LEFT JOIN existe porque a tela mostrava "canal 1" — o id cru da linha,
+     * que não diz ao dono QUAL grupo ficou sem receber. LEFT (e não INNER)
+     * porque canal removido não pode sumir com a falha: o histórico do erro
+     * vale justamente quando a causa foi mexer no canal.
+     */
+    `SELECT d.id, d.orig_queue, d.error, d.channel_id, d.status, d.created_at,
+            c.display_name AS channel_name, c.target_ref AS channel_target
+       FROM dlq d
+       LEFT JOIN channels c ON c.id = d.channel_id
+      WHERE d.status='pending_review' ORDER BY d.created_at DESC LIMIT 100`,
   );
   res.json(rows);
 }));

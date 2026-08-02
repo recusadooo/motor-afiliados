@@ -304,14 +304,25 @@ async function carregarCiclos() {
   }
   const linhas = runs.map((r) => {
     const s = r.stats || {};
+    /*
+     * Ciclo PULADO não é ciclo com corte. A trava de backlog chama o mesmo
+     * `cut()` para registrar o porquê, então o mapa vem com uma entrada e a
+     * soma dava "1 cortada" para um ciclo em que NADA foi buscado nem cortado —
+     * um número inventado numa coluna de contagem. `stats.skipped` já era
+     * gravado pelo motor (shopeeFeed.ts) e o painel simplesmente não lia.
+     */
+    const pulado = !!s.skipped;
     const cortadas = Object.values(s.cut || {}).reduce((a, b) => a + Number(b), 0);
     const dur = s.ms != null ? (s.ms / 1000).toFixed(1) + 's' : (r.finished_at ? '—' : 'rodando…');
     const topo = Object.entries(s.cut || {}).sort((a, b) => b[1] - a[1]).slice(0, 3)
       .map(([m, n]) => `${n}× ${m}`).join(' · ') || '—';
     const venc = s.expired ? ` <span class="tag neutro">${s.expired} vencidas</span>` : '';
-    return `<tr><td>${esc(dataHora(r.started_at))}</td><td>${esc(r.trigger)}</td><td>${s.keywords ?? '—'}</td>
-      <td>${s.fetched ?? 0}</td><td class="err">${cortadas}</td>
-      <td class="alerta">${s.selected ?? 0}</td><td>${dur}${venc}</td><td>${esc(topo)}</td></tr>`;
+    const motivo = pulado
+      ? `<span class="tag neutro">pulado</span> ${esc(Object.keys(s.cut || {})[0] || 'sem motivo registrado')}`
+      : esc(topo);
+    return `<tr${pulado ? ' class="linha-pulada"' : ''}><td>${esc(dataHora(r.started_at))}</td><td>${esc(r.trigger)}</td><td>${pulado ? '—' : (s.keywords ?? '—')}</td>
+      <td>${pulado ? '—' : (s.fetched ?? 0)}</td><td class="${pulado ? '' : 'err'}">${pulado ? '—' : cortadas}</td>
+      <td class="${pulado ? '' : 'alerta'}">${pulado ? '—' : (s.selected ?? 0)}</td><td>${dur}${venc}</td><td>${motivo}</td></tr>`;
   }).join('');
   $('ciclos').innerHTML = `<div class="rolagem"><table>
     <thead><tr><th>quando</th><th>gatilho</th><th>keywords</th><th>buscadas</th><th>cortadas</th>
@@ -677,6 +688,17 @@ async function carregarVarreduras() {
 /* ==================== GRUPOS OBSERVADOS ==================== */
 const KIND_ROTULO = { promo: 'promoção genérica', nicho: 'do seu nicho', misto: 'misto', proprio: 'seu grupo' };
 
+/*
+ * UMA COR = UM SIGNIFICADO, e aqui estava INVERTIDO. A etiqueta usava
+ * `kind === 'nicho' ? 'nos' : 'eles'`, o que pintava de âmbar ("nosso motor")
+ * um grupo que é do CONCORRENTE, e de magenta ("eles") justamente o `proprio`,
+ * que é o único grupo nosso. `kind` é taxonomia de conteúdo — promo/nicho/misto
+ * se distinguem pelo TEXTO da etiqueta, não por matiz de dado. O âmbar fica
+ * reservado para o que de fato é nosso, porque é ele que separa o grupo que
+ * PRECISA ficar fora de "o que eles escolhem" (report.ts já o exclui).
+ */
+const kindClasse = (k) => (k === 'proprio' ? 'nos' : 'eles');
+
 async function carregarGrupos() {
   const [grupos] = await Promise.all([api('/api/intel/groups'), guardar(carregarCobertura, 'cobertura')]);
   const alvo = $('lista-grupos');
@@ -688,7 +710,7 @@ async function carregarGrupos() {
   alvo.innerHTML = grupos.map((g) => `<article class="linha-item sem-foto">
     <div class="corpo">
       <div class="t-titulo">${esc(g.display_name || g.group_jid)}
-        <span class="tag ${g.kind === 'nicho' ? 'nos' : 'eles'}">${esc(KIND_ROTULO[g.kind] || g.kind)}</span>
+        <span class="tag ${kindClasse(g.kind)}">${esc(KIND_ROTULO[g.kind] || g.kind)}</span>
         ${g.is_active ? '' : '<span class="tag neutro">PAUSADO</span>'}</div>
       <div class="meta">
         <span class="mono">${esc(g.group_jid)}</span>
@@ -790,11 +812,24 @@ async function carregarConfig() {
 }
 
 /* ==================== FALHAS ==================== */
+
+/*
+ * "canal 1" era o id da linha, não um nome — o dono via a falha e não sabia
+ * QUAL grupo ficou sem receber. Ordem de preferência: o nome que ele mesmo deu,
+ * depois o id do grupo, e só então o id cru (canal já removido, que é
+ * exatamente quando a falha mais interessa).
+ */
+function nomeDoCanal(r) {
+  if (r.channel_name) return r.channel_name;
+  if (r.channel_target) return r.channel_target;
+  return r.channel_id ? `canal ${r.channel_id} (removido)` : 'sem canal';
+}
+
 async function carregarFalhas() {
   const rows = await api('/api/dlq');
   $('falhas').innerHTML = rows.length
     ? rows.map((r) => `<article class="linha-item sem-foto"><div class="corpo">
-        <div class="t-dado">${esc(r.orig_queue)} · canal ${esc(r.channel_id || '—')}</div>
+        <div class="t-dado">${esc(r.orig_queue)} · ${esc(nomeDoCanal(r))}</div>
         <div class="meta err">${esc((r.error || '').slice(0, 300))}</div>
         <div class="meta">${esc(dataHora(r.created_at))}</div></div></article>`).join('')
     : vazio('Nenhuma falha pendente', 'Tudo que foi para o ar chegou. Falhas de envio aparecem aqui com o erro cru, e nada é reenviado sozinho.');
