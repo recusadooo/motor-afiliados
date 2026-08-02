@@ -34,7 +34,17 @@ import {
  * Só a API é exposta (via Traefik, no domínio API_DOMAIN).
  */
 
-const app = express();
+/*
+ * `app` é exportado para que o caminho de ENTRADA possa ser exercitado de
+ * verdade (ver `intel/entrada.test.ts`): subir em porta efêmera e mandar um POST
+ * real no webhook, em vez de chamar as funções por dentro. Importar este módulo
+ * não abre porta nem toca o banco — quem escuta é `startApi()`.
+ *
+ * Isto existe pelo mesmo motivo que `dispatchOne` foi exportado: a perna de
+ * entrada era a única do pipeline sem cobertura ponta a ponta, e o motivo alegado
+ * ("precisa de um WhatsApp real") era falso — o webhook é um POST HTTP.
+ */
+export const app = express();
 app.use(express.json({ limit: '2mb' }));
 
 /**
