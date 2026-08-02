@@ -9,6 +9,7 @@ import { runCaptureExclusivo } from './capture/shopeeFeed';
 import { runSweepExclusivo, podarObservacoes } from './intel/observe';
 import { matchPendingPosts } from './intel/match';
 import { migrate } from './migrate';
+import { sincronizarCategorias, categoriasGuardadas } from './shopee/categorias';
 
 /**
  * Processo de background: consome filas (process, drip), roda a captura por cron
@@ -20,6 +21,22 @@ async function main(): Promise<void> {
 
   // Aplica o schema (espera o Postgres). Idempotente.
   await migrate();
+
+  /*
+   * Árvore de categorias: baixa se ainda não existe. É o que dá nome à
+   * categoria que a Shopee carimba em cada oferta — sem ela toda observação
+   * fica sem categoria e o perfil de nicho dos grupos não sai do lugar.
+   * Best-effort: é um endpoint público de terceiro e não pode impedir o worker
+   * de subir. Se falhar, o painel mostra "árvore não sincronizada" e existe um
+   * botão para tentar de novo.
+   */
+  try {
+    if ((await categoriasGuardadas()) === 0) await sincronizarCategorias();
+  } catch (err) {
+    log.warn('não consegui baixar a árvore de categorias da Shopee', {
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   startProcessWorker();
   startDripWorker();

@@ -29,6 +29,10 @@ export function normalizeProduct(node: ProductOfferNode): NormalizedOffer {
     savingsBrl: null,
     commissionRate: toNum(node.commissionRate), // decimal 0.07
     category: null,
+    // Ids crus: quem traduz é `shopee/categorias.ts`, que tem o mapa oficial.
+    catIds: Array.isArray(node.productCatIds)
+      ? node.productCatIds.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0)
+      : null,
     imageUrl: node.imageUrl ?? null,
     sourceUrl: node.productLink ?? null,
     offerLink: node.offerLink ?? null,

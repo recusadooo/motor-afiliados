@@ -8,6 +8,7 @@ import type { ProductOfferNode, ShopeeOfferNode, Paginated } from './types';
 
 const PRODUCT_FIELDS = `
   itemId shopId productName productLink offerLink imageUrl
+  productCatIds
   priceMin priceMax priceDiscountRate
   commissionRate sellerCommissionRate shopeeCommissionRate commission
   sales ratingStar shopName shopType periodStartTime periodEndTime

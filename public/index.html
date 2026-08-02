@@ -6,8 +6,9 @@
 <title>MOTOR::AFILIADO — Painel de operação</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;800&family=Martian+Mono:wght@300;400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/painel.css">
+<link rel="stylesheet" href="/componentes.css">
 </head>
 <body>
 
@@ -23,6 +24,7 @@
   </span>
 </header>
 
+<div class="corpo-app">
 <nav><div class="interno">
   <a href="/" data-secao="visao">Visão geral</a>
   <a href="/feed" data-secao="feed">Feed</a>
@@ -35,7 +37,7 @@
   <a href="/falhas" data-secao="falhas">Falhas</a>
 </div></nav>
 
-<div class="wrap">
+<main class="wrap">
 
   <!-- ============ VISÃO GERAL ============ -->
   <section class="secao ativa" id="secao-visao">
@@ -176,28 +178,54 @@
       os grupos, e o formulário estava consumindo a primeira dobra inteira antes
       do primeiro card aparecer. `painel.js` controla o `open` conforme a lista.
     -->
-    <details class="painel dobravel" id="add-grupo-caixa" open>
-      <summary><h3 class="t-titulo">Adicionar um grupo</h3></summary>
-      <p class="nota" style="margin-top:0">Cole o id do grupo, ou use a aba Conexões para listar
-        os grupos de um número já conectado.</p>
-      <div class="linha-campos">
-        <div><label for="g-jid">Id do grupo</label><input id="g-jid" placeholder="120363XXXXXXXXXX@g.us" /></div>
-        <div><label for="g-nome">Nome (como você reconhece)</label><input id="g-nome" placeholder="ex.: Promos Tech BR" /></div>
-        <div><label for="g-kind">Tipo</label><select id="g-kind">
-          <option value="promo">promo — promoção genérica</option>
-          <option value="nicho">nicho — do seu nicho</option>
-          <option value="misto">misto</option>
-          <option value="proprio">próprio — seu grupo</option>
-        </select></div>
+    <!--
+      ADICIONAR GRUPO EM DOIS PASSOS, como o dono pediu: primeiro escolhe o
+      número (só os CONECTADOS — número desligado não tem grupo para listar),
+      depois escolhe o grupo numa lista. Colar id na mão continua existindo,
+      mas como saída de emergência, não como caminho principal.
+    -->
+    <div class="painel" id="add-grupo-caixa">
+      <div class="cabeca-painel">
+        <h3 class="t-titulo">Adicionar um grupo para observar</h3>
+        <button class="btn fantasma pequeno" id="btn-add-recomecar" style="display:none">recomeçar</button>
       </div>
-      <div class="acoes" style="display:flex;gap:8px;margin-top:12px">
-        <button class="btn" id="btn-add-grupo">Adicionar grupo</button>
+
+      <div id="add-passo-numero">
+        <p class="nota" style="margin-top:0">1. De qual número você quer listar os grupos?</p>
+        <div id="add-numeros" class="escolha-telas compacta"></div>
       </div>
-      <div class="nota" id="g-msg"></div>
-    </details>
+
+      <div id="add-passo-grupo" style="display:none">
+        <p class="nota" style="margin-top:0">2. Escolha o grupo — <b id="add-num-nome"></b></p>
+        <input id="add-filtro" placeholder="filtrar por nome…" style="margin-bottom:10px" />
+        <div id="add-grupos" class="poco lista-escolha"></div>
+      </div>
+
+      <details style="margin-top:16px">
+        <summary class="nota" style="cursor:pointer">ou cole o id do grupo à mão</summary>
+        <div class="linha-campos" style="margin-top:10px">
+          <div><label for="g-jid">Id do grupo</label><input id="g-jid" placeholder="120363XXXXXXXXXX@g.us" /></div>
+          <div><label for="g-nome">Nome (como você reconhece)</label><input id="g-nome" placeholder="ex.: Promos Tech BR" /></div>
+          <div><label for="g-kind">Tipo</label><select id="g-kind">
+            <option value="promo">promo — promoção genérica</option>
+            <option value="nicho">nicho — do seu nicho</option>
+            <option value="misto">misto</option>
+            <option value="proprio">próprio — seu grupo</option>
+          </select></div>
+        </div>
+        <div class="passo-acoes"><button class="btn" id="btn-add-grupo">Adicionar</button></div>
+      </details>
+      <div id="g-msg" class="nota"></div>
+    </div>
 
     <h2 class="secao-titulo">grupos cadastrados</h2>
     <div class="poco" id="lista-grupos"></div>
+
+    <h2 class="secao-titulo">de que cada grupo fala</h2>
+    <p class="sub" style="margin-bottom:14px">A categoria vem carimbada pela própria Shopee em cada
+      oferta — então "generalista" aqui é uma conclusão do que eles postaram, não um rótulo
+      escolhido à mão.</p>
+    <div id="nicho"></div>
 
     <h2 class="secao-titulo">cobertura por grupo</h2>
     <div id="cobertura"></div>
@@ -235,50 +263,109 @@
     <div id="filas"></div>
   </section>
 
+  <!--
+    CONEXÕES em DUAS TELAS, com escolha antes de entrar.
+    Antes era tudo empilhado no mesmo scroll: conectar número, QR, criar grupo e
+    escolher grupos de disparo — quatro tarefas diferentes competindo pela mesma
+    tela. Quem chegava não sabia por onde começar.
+  -->
   <section class="secao" id="secao-conexoes">
     <h1 class="t-pagina">Conexões</h1>
-    <p class="sub">Conecte o número do WhatsApp e escolha em quais grupos ele dispara.</p>
-    <div class="painel">
-      <div class="cabeca-painel">
-        <h3 class="t-titulo">Seus números</h3>
-        <button class="btn fantasma pequeno" data-acao="numeros">atualizar</button>
-      </div>
-      <p class="nota" style="margin-top:0">Cada número da sua Evolution e os grupos de que ele
-        participa. Marque ali mesmo o que dispara e o que é só observação.</p>
-      <div id="numeros"></div>
+    <p class="sub">O que você quer fazer?</p>
+
+    <!-- ---- escolha ---- -->
+    <div id="conexoes-menu" class="escolha-telas">
+      <button class="cartao-escolha" data-tela="numeros">
+        <span class="ce-num">01</span>
+        <span class="ce-titulo">Seus números</span>
+        <span class="ce-desc">Ver os números da sua Evolution, os grupos de cada um, e ligar
+          disparo ou observação em cada grupo.</span>
+        <span class="ce-ir">abrir →</span>
+      </button>
+      <button class="cartao-escolha" data-tela="conectar">
+        <span class="ce-num">02</span>
+        <span class="ce-titulo">Conectar ou criar</span>
+        <span class="ce-desc">Adicionar um número novo pelo QR, ou criar um grupo de ofertas
+          com link de convite.</span>
+        <span class="ce-ir">abrir →</span>
+      </button>
     </div>
 
-    <div class="painel">
-      <h3 class="t-titulo">Conectar um número</h3>
-      <p class="nota" style="margin-top:0"><b>Número novo:</b> preencha nome + função e faça 1 → 2 → 3.
-        O passo 1 cria a instância na Evolution e já a configura para grupos (recebe grupos,
-        rejeita chamadas, webhook apontado para cá).
-        <b>Número que já existe na sua Evolution?</b> Pule 1–3 e vá direto em <b>Registrar canal</b>.</p>
-      <div class="linha-campos">
-        <div><label for="c-name">Nome do número / instância</label>
-          <input id="c-name" placeholder="ex.: Principal — ou o nome exato de uma instância existente" /></div>
-        <div><label for="c-role">Função</label><select id="c-role">
-          <option value="poster">poster — posta no grupo</option>
-          <option value="listener">listener — só escuta</option>
-        </select></div>
+    <!-- ---- TELA A: seus números ---- -->
+    <div id="tela-numeros" class="subtela">
+      <div class="cabeca-painel">
+        <button class="btn fantasma pequeno" data-voltar-conexoes>← voltar</button>
+        <button class="btn fantasma pequeno" data-acao="numeros">atualizar</button>
       </div>
-      <div class="acoes" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-        <button class="btn" id="btn-criar-inst">1. Criar e configurar</button>
-        <button class="btn fantasma" id="btn-qr">2. Mostrar QR</button>
-        <button class="btn fantasma" id="btn-estado">3. Verificar conexão</button>
+      <h2 class="t-titulo" style="margin-top:16px">Seus números</h2>
+      <p class="sub">Cada número da sua Evolution e os grupos de que ele participa. O interruptor
+        de cada grupo liga o disparo ou a observação.</p>
+      <div id="numeros"></div>
+
+      <h2 class="secao-titulo">grupos de disparo já registrados</h2>
+      <div class="poco" id="lista-canais"></div>
+    </div>
+
+    <!-- ---- TELA B: conectar / criar, em PASSOS ---- -->
+    <div id="tela-conectar" class="subtela">
+      <div class="cabeca-painel">
+        <button class="btn fantasma pequeno" data-voltar-conexoes>← voltar</button>
       </div>
-      <div id="qr" class="qr"></div>
+
+      <h2 class="t-titulo" style="margin-top:16px">Conectar um número</h2>
+      <p class="sub">Um passo de cada vez. O próximo só aparece quando o anterior termina.</p>
+
+      <ol class="passos" id="passos-conectar">
+        <li class="passo" data-passo="1">
+          <div class="passo-cabeca"><span class="passo-num">1</span>
+            <span class="passo-titulo">Dê um nome ao número</span></div>
+          <div class="passo-corpo">
+            <p class="nota" style="margin-top:0">É o nome da instância na Evolution. Se o número
+              JÁ existe lá, digite o nome exato dela e pule para o passo 3.</p>
+            <div class="linha-campos">
+              <div><label for="c-name">Nome do número / instância</label>
+                <input id="c-name" placeholder="ex.: Principal" /></div>
+              <div><label for="c-role">Para que serve</label><select id="c-role">
+                <option value="poster">postar ofertas no grupo</option>
+                <option value="listener">só escutar (inteligência)</option>
+              </select></div>
+            </div>
+            <div class="passo-acoes">
+              <button class="btn" id="btn-criar-inst">Criar e configurar</button>
+              <button class="btn fantasma" id="btn-pular-1">já existe na Evolution →</button>
+            </div>
+          </div>
+        </li>
+
+        <li class="passo" data-passo="2">
+          <div class="passo-cabeca"><span class="passo-num">2</span>
+            <span class="passo-titulo">Leia o QR no celular</span></div>
+          <div class="passo-corpo">
+            <p class="nota" style="margin-top:0">WhatsApp → Aparelhos conectados → Conectar aparelho.
+              O código expira em pouco tempo; se expirar, peça outro.</p>
+            <div class="passo-acoes"><button class="btn" id="btn-qr">Mostrar QR</button></div>
+            <div id="qr" class="qr"></div>
+          </div>
+        </li>
+
+        <li class="passo" data-passo="3">
+          <div class="passo-cabeca"><span class="passo-num">3</span>
+            <span class="passo-titulo">Confirme que conectou</span></div>
+          <div class="passo-corpo">
+            <div class="passo-acoes"><button class="btn" id="btn-estado">Verificar conexão</button>
+              <button class="btn fantasma" id="btn-webhook">Apontar webhook para cá</button></div>
+            <p class="nota">O webhook é o que faz as mensagens dos grupos chegarem aqui. Só é
+              necessário para número que vai OBSERVAR grupos.</p>
+          </div>
+        </li>
+      </ol>
       <div id="c-msg" class="nota"></div>
 
-      <!--
-        Criar grupo. Fica DENTRO do painel de conexão, depois do QR, porque só
-        faz sentido com um número já conectado — é ele que vira o dono do grupo.
-      -->
-      <details class="painel dobravel" id="criar-grupo-caixa" style="margin-top:22px">
-        <summary><h3 class="t-titulo">Criar um grupo novo</h3></summary>
-        <p class="nota" style="margin-top:0">O número conectado acima vira o <b>dono</b> do grupo.
-          A Evolution exige <b>pelo menos um participante</b> para criar — pode ser o seu outro
-          número. Depois você divulga pelo link de convite.</p>
+      <h2 class="t-titulo" style="margin-top:34px">Criar um grupo de ofertas</h2>
+      <p class="sub">O número escolhido acima vira o dono do grupo. A Evolution exige
+        <b>pelo menos um participante</b> para criar — pode ser o seu outro número. Depois você
+        divulga pelo link de convite.</p>
+      <div class="painel">
         <div class="linha-campos">
           <div><label for="g-subject">Nome do grupo</label>
             <input id="g-subject" placeholder="ex.: Ofertas do Dia — Tech e Casa" /></div>
@@ -290,8 +377,7 @@
         <label class="escolha">
           <input type="checkbox" id="g-somente-admin" checked />
           <span>Só eu posso mandar mensagem
-            <span class="nota">Recomendado: o grupo vira um mural de ofertas, sem conversa no meio.
-              Dá para destravar depois pelo celular.</span></span>
+            <span class="nota">Recomendado: o grupo vira um mural de ofertas, sem conversa no meio.</span></span>
         </label>
         <label for="g-registrar" style="margin-top:10px">Depois de criar, registrar como</label>
         <select id="g-registrar">
@@ -299,33 +385,11 @@
           <option value="intel">grupo observado (próprio) — só acompanhar</option>
           <option value="nao">não registrar agora</option>
         </select>
-        <div class="acoes" style="display:flex;gap:8px;margin-top:12px">
-          <button class="btn" id="btn-criar-grupo">Criar grupo</button>
-        </div>
+        <div class="passo-acoes"><button class="btn" id="btn-criar-grupo">Criar grupo</button></div>
         <div id="g-criar-msg" class="nota"></div>
         <div id="g-criado"></div>
-      </details>
-
-      <div id="extra-poster">
-        <h3 class="t-titulo" style="margin-top:22px">Em quais grupos esse número dispara?</h3>
-        <button class="btn fantasma pequeno" id="btn-listar-grupos">Listar grupos</button>
-        <div id="c-grupos" class="lista-marcar"><div class="nota" style="padding:8px">clique em "Listar grupos" e marque os grupos.</div></div>
-        <label for="c-grupo-manual" style="margin-top:10px">ou cole o id de um grupo</label>
-        <input id="c-grupo-manual" placeholder="120363XXXXXXXXXX@g.us" />
-        <div class="acoes" style="display:flex;gap:8px;margin-top:12px">
-          <button class="btn" id="btn-registrar-canal">Registrar para disparo</button>
-          <button class="btn fantasma" id="btn-registrar-intel">Registrar para observação</button>
-        </div>
-        <p class="nota">"Disparo" posta no grupo. "Observação" só lê, para inteligência de mercado.</p>
-      </div>
-      <div id="extra-listener" style="display:none">
-        <p class="nota" style="margin-top:12px">Depois de conectar, aponte o webhook da Evolution para este app:</p>
-        <button class="btn fantasma pequeno" id="btn-webhook">Configurar webhook do listener</button>
       </div>
     </div>
-
-    <h2 class="secao-titulo">números e grupos de disparo</h2>
-    <div class="poco" id="lista-canais"></div>
   </section>
 
   <!-- ============ CONFIG ============ -->
@@ -376,6 +440,7 @@
       reenviado sozinho.</p>
     <div class="poco" id="falhas"></div>
   </section>
+</main>
 </div>
 
 <script src="/painel.js"></script>

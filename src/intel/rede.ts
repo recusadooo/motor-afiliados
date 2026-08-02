@@ -248,3 +248,162 @@ export async function redeDeGrupos(dias?: number): Promise<RedeDeGrupos> {
     }).sort((x, y) => y.vezes - x.vezes),
   };
 }
+
+/* ============================================================
+   PERFIL DE NICHO DE CADA GRUPO
+   ============================================================ */
+
+export interface NichoGrupo {
+  groupId: string;
+  nome: string;
+  postsClassificados: number;
+  postsTotal: number;
+  /** Categorias em que ele posta, da mais frequente para a menos. */
+  categorias: Array<{ nome: string; n: number; pct: number }>;
+  /** 0..1 — quanto a atividade se concentra em poucas categorias. */
+  concentracao: number | null;
+  categoriasDistintas: number;
+  /** Rótulo derivado: especialista, misto, generalista — ou "amostra pequena". */
+  perfil: 'amostra_pequena' | 'especialista' | 'misto' | 'generalista';
+  principal: string | null;
+  /** De que lojas o grupo posta — calculado SEMPRE sobre tudo, sem filtro. */
+  plataformas: Array<{ nome: string; n: number; pct: number }>;
+  /** Quanto do que ele posta é Shopee — é a fatia com que o motor compete. */
+  pctShopee: number;
+  postsNaJanela: number;
+}
+
+/**
+ * Mínimo de posts classificados para arriscar um rótulo.
+ *
+ * Com 5 posts, um grupo que por acaso postou 4 eletrônicos vira "especialista
+ * em eletrônicos" — e o dono decide estratégia com base num acaso. 20 é
+ * conservador de propósito: abaixo disso o painel diz "amostra pequena" em vez
+ * de inventar um perfil.
+ */
+const MIN_PARA_ROTULAR = 20;
+
+/**
+ * Perfil de categoria de cada grupo observado.
+ *
+ * A categoria NÃO é inferida por palavra-chave nossa: vem carimbada pela
+ * própria Shopee (`productCatIds`) na observação com que o post casou. Isso é o
+ * que substitui o rótulo raso "promoção genérica" que o dono escolhia na mão —
+ * agora o perfil é MEDIDO, e "generalista" vira uma conclusão, não um chute.
+ *
+ * CONSEQUÊNCIA HONESTA: só dá para classificar post que CASOU com uma
+ * observação da API. Post de outra plataforma (Amazon, Mercado Livre) e post
+ * que o matcher não achou ficam de fora — por isso o retorno traz
+ * `postsClassificados` E `postsTotal` lado a lado. Um perfil calculado sobre
+ * 12 de 300 posts não é o perfil do grupo, e a tela precisa poder dizer isso.
+ */
+export async function nichoDosGrupos(
+  dias?: number,
+  somenteShopee = true,
+): Promise<{ dias: number; somenteShopee: boolean; grupos: NichoGrupo[] }> {
+  const d = Math.max(1, Math.min(365, Math.round(Number(dias) || 30)));
+
+  /*
+   * FILTRO DE PLATAFORMA. Os grupos postam de várias lojas — o grupo real que o
+   * dono mostrou era 10 Amazon + 7 Mercado Livre e ZERO Shopee. Misturar tudo
+   * num só perfil responde "de que eles falam", mas não "de que eles falam NA
+   * SHOPEE", que é a única parte com que o motor compete. Por isso o padrão é
+   * só Shopee, e o outro modo continua disponível — ligado por interruptor, não
+   * apagado do código.
+   */
+  const filtroPlataforma = somenteShopee ? `AND p.platform_guess = 'shopee'` : '';
+
+  const linhas = await query<{ group_id: string; nome: string; cat: string | null; n: string }>(
+    `SELECT p.group_id::text AS group_id,
+            coalesce(g.display_name, g.group_jid) AS nome,
+            coalesce(m.obs_cat_raiz, ao.cat_raiz)  AS cat,
+            count(*)::text AS n
+       FROM intel_posts p
+       JOIN intel_groups g  ON g.id = p.group_id AND g.is_active = true
+       LEFT JOIN intel_matches m ON m.post_id = p.id AND m.verdict = 'casado'
+       LEFT JOIN api_observations ao ON ao.id = m.observation_id
+      WHERE p.posted_at >= now() - ($1 || ' days')::interval
+        ${filtroPlataforma}
+      GROUP BY 1, 2, 3`,
+    [String(d)],
+  );
+
+  /*
+   * A distribuição por PLATAFORMA é calculada SEMPRE sobre tudo, mesmo quando o
+   * filtro está ligado. É ela que explica por que um grupo tem poucos posts
+   * classificados — "só 12 de 300" pode significar matcher fraco OU que 288
+   * eram de outra loja, e essas duas leituras levam a decisões opostas.
+   */
+  const plats = await query<{ group_id: string; plat: string | null; n: string }>(
+    `SELECT p.group_id::text AS group_id, coalesce(p.platform_guess,'desconhecida') AS plat,
+            count(*)::text AS n
+       FROM intel_posts p
+       JOIN intel_groups g ON g.id = p.group_id AND g.is_active = true
+      WHERE p.posted_at >= now() - ($1 || ' days')::interval
+      GROUP BY 1, 2`,
+    [String(d)],
+  );
+  const platPorGrupo = new Map<string, Array<{ nome: string; n: number }>>();
+  for (const l of plats) {
+    const arr = platPorGrupo.get(l.group_id) ?? [];
+    arr.push({ nome: l.plat ?? 'desconhecida', n: Number(l.n) });
+    platPorGrupo.set(l.group_id, arr);
+  }
+
+  const porGrupo = new Map<string, { nome: string; cats: Map<string, number>; total: number }>();
+  for (const l of linhas) {
+    const g = porGrupo.get(l.group_id) ?? { nome: l.nome, cats: new Map(), total: 0 };
+    const n = Number(l.n);
+    g.total += n;
+    if (l.cat) g.cats.set(l.cat, (g.cats.get(l.cat) ?? 0) + n);
+    porGrupo.set(l.group_id, g);
+  }
+
+  const grupos: NichoGrupo[] = [...porGrupo.entries()].map(([groupId, g]) => {
+    const classificados = [...g.cats.values()].reduce((a, b) => a + b, 0);
+    const cats = [...g.cats.entries()]
+      .map(([nome, n]) => ({ nome, n, pct: classificados ? Math.round((n / classificados) * 100) : 0 }))
+      .sort((a, b) => b.n - a.n);
+
+    /*
+     * Concentração = soma dos quadrados das frações (Herfindahl). Escolhido em
+     * vez de "só a fatia da maior" porque distingue dois casos que a maior
+     * fatia confunde: 40/30/30 e 40/2/2/2... têm a mesma líder e comportamentos
+     * opostos. Vai de ~0 (espalhado) a 1 (tudo numa categoria só).
+     */
+    const concentracao = classificados
+      ? Number(cats.reduce((acc, c) => acc + (c.n / classificados) ** 2, 0).toFixed(3))
+      : null;
+
+    let perfil: NichoGrupo['perfil'] = 'amostra_pequena';
+    if (classificados >= MIN_PARA_ROTULAR && concentracao != null) {
+      if (concentracao >= 0.5) perfil = 'especialista';
+      else if (concentracao >= 0.22) perfil = 'misto';
+      else perfil = 'generalista';
+    }
+
+    const plataformas = (platPorGrupo.get(groupId) ?? []).sort((a, b) => b.n - a.n);
+    const totalPlat = plataformas.reduce((a, b) => a + b.n, 0);
+    const daShopee = plataformas.find((p) => p.nome === 'shopee')?.n ?? 0;
+
+    return {
+      groupId,
+      nome: g.nome,
+      postsClassificados: classificados,
+      postsTotal: g.total,
+      categorias: cats.slice(0, 8),
+      concentracao,
+      categoriasDistintas: cats.length,
+      perfil,
+      principal: cats[0]?.nome ?? null,
+      plataformas: plataformas.map((p) => ({
+        nome: p.nome, n: p.n, pct: totalPlat ? Math.round((p.n / totalPlat) * 100) : 0,
+      })),
+      pctShopee: totalPlat ? Math.round((daShopee / totalPlat) * 100) : 0,
+      postsNaJanela: totalPlat,
+    };
+  });
+
+  grupos.sort((a, b) => b.postsClassificados - a.postsClassificados);
+  return { dias: d, somenteShopee, grupos };
+}

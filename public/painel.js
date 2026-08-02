@@ -128,9 +128,9 @@ function carregarSecao(s) {
   if (s === 'feed') { guardar(carregarFacetas, 'f-resumo'); guardar(carregarOfertas, 'ofertas'); }
   if (s === 'ciclos') guardar(carregarCiclos, 'ciclos');
   if (s === 'inteligencia') { guardar(carregarInteligencia, 'travessia'); guardar(carregarRede, 'rede'); }
-  if (s === 'grupos') { guardar(carregarGrupos, 'lista-grupos'); guardar(carregarIngestUrl, 'ingest-url'); }
+  if (s === 'grupos') { guardar(carregarGrupos, 'lista-grupos'); guardar(carregarIngestUrl, 'ingest-url'); guardar(carregarAddNumeros, 'add-numeros'); guardar(carregarNicho, 'nicho'); }
   if (s === 'filas') guardar(carregarFilas, 'filas');
-  if (s === 'conexoes') { guardar(carregarCanais, 'lista-canais'); guardar(carregarNumeros, 'numeros'); }
+  if (s === 'conexoes') abrirSubtela(null);
   if (s === 'config') guardar(carregarConfig, 'cfg-status');
   if (s === 'falhas') guardar(carregarFalhas, 'falhas');
 }
@@ -188,7 +188,14 @@ async function carregarFunil() {
       <div class="n">${inteiro(n)}</div><div class="r">${esc(rot)}</div></div>`;
   }).join('');
 
-  const ordenados = Object.entries(cortes).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  /*
+   * O mapa de motivos continua vindo de `cut` — a lista embaixo do funil mostra
+   * POR QUE cada corte aconteceu, e aí contagem de evento é o que se quer. O
+   * que não pode vir daí é a LARGURA da faixa (ver acima). Um commit anterior
+   * removeu a variável ao consertar a largura e deixou esta linha órfã, o que
+   * derrubava a Visão Geral inteira com "cortes is not defined".
+   */
+  const ordenados = Object.entries(ultimo.cut || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
   const motivos = ordenados.length
     ? `<div class="motivos">${ordenados.map(([m, n]) => `<span class="motivo"><b>${n}</b> ${esc(m)}</span>`).join('')}</div>`
     : '';
@@ -217,9 +224,16 @@ async function carregarPlacar() {
     ? `<div class="chips">${canais.map((c) =>
         `<span class="chip"><span class="ponto-status" style="background:${cor[c.status] || 'var(--ink3)'}"></span>
          ${esc(c.display_name || c.instance_ref)} · ${esc(c.status)} · disjuntor ${esc(c.breaker)}</span>`).join('')}</div>`
-    : vazio('Nenhum número conectado',
-        'O motor captura ofertas e mede preço, mas não tem para onde postar. Conecte um número do WhatsApp e escolha os grupos de disparo.',
-        '<button class="btn" data-ir="conexoes">Conectar um número</button>');
+    /*
+     * A frase fala do que FALTA, não do número. `/api/stats` devolve os CANAIS
+     * registrados aqui, não as instâncias da Evolution — então "nenhum número
+     * conectado" era falso quando o número estava conectado e só não tinha
+     * grupo escolhido. Painel que afirma o contrário do que o dono vê na tela
+     * ao lado destrói a confiança em tudo que ele diz.
+     */
+    : vazio('Nenhum grupo recebendo ofertas',
+        'O motor captura e mede preço, mas ainda não tem para onde postar. Se o seu número já está conectado, falta só escolher o grupo de disparo.',
+        '<button class="btn" data-ir="conexoes">Escolher grupo de disparo</button>');
 }
 
 /* ==================== FEED ==================== */
@@ -752,28 +766,12 @@ async function carregarGrupos() {
   const [grupos] = await Promise.all([api('/api/intel/groups'), guardar(carregarCobertura, 'cobertura')]);
   const alvo = $('lista-grupos');
   /*
-   * SÓ na primeira carga. `carregarGrupos()` roda de novo a cada ação do
-   * usuário (cadastrar, pausar, remover, trocar o tipo no select, "atualizar"),
-   * e reatribuir `open` a cada vez fechava a caixa POR CIMA de quem a tinha
-   * aberto — inclusive escondendo a própria confirmação de "grupo cadastrado",
-   * que é escrita em #g-msg, filho direto do <details>. Estado inicial é
-   * palpite; depois disso quem manda é o usuário.
+   * A caixa de adicionar deixou de ser um <details> que abria e fechava sozinho:
+   * virou um painel fixo com fluxo de dois passos (escolher número → escolher
+   * grupo). Toda a lógica de decidir quando abrir some junto — não havia
+   * escolha boa entre "fecha por cima do usuário" e "come a primeira dobra", e
+   * a resposta certa era não ter caixa dobrável aqui.
    */
-  const caixa = $('add-grupo-caixa');
-  if (caixa) {
-    /*
-     * Decide na primeira carga E sempre que a lista FICA vazia. Só a primeira
-     * carga não bastava: quem tinha 3 grupos (caixa fechada) e removia os três
-     * ficava com um estado vazio dizendo "cole o id aqui" apontando para um
-     * formulário recolhido que não reabria mais enquanto a página vivesse — a
-     * abertura automática ERA a compensação do estado vazio não ter botão.
-     * Fora dessas transições quem manda é o usuário: reatribuir a cada carga
-     * fechava a caixa por cima de quem a tinha aberto, escondendo inclusive a
-     * confirmação de "grupo cadastrado", que é escrita dentro dela.
-     */
-    if (!caixa.dataset.decidido || !grupos.length) caixa.open = !grupos.length;
-    caixa.dataset.decidido = '1';
-  }
   if (!grupos.length) {
     alvo.innerHTML = vazio('Nenhum grupo observado',
       'Entre num grupo de promoção com o número de escuta, cole o id aqui, e o motor começa a comparar o que eles postam com o que a API ofereceu no mesmo momento.');
@@ -824,13 +822,14 @@ const cNome = () => $('c-name').value.trim();
 const cFuncao = () => $('c-role').value;
 const msg = (id, texto, cls) => { const n = $(id); if (n) n.innerHTML = `<span class="${cls || ''}">${esc(texto)}</span>`; };
 
-function gruposMarcados() {
-  const marcados = [...document.querySelectorAll('#c-grupos input:checked')]
-    .map((i) => ({ id: i.value, subject: i.getAttribute('data-subject') }));
-  const manual = $('c-grupo-manual').value.trim();
-  if (manual) marcados.push({ id: manual, subject: manual });
-  return marcados;
-}
+
+/*
+ * `gruposMarcados()` foi removida junto com a lista de caixas de seleção.
+ * Escolher os grupos passou a ser feito grupo a grupo, no interruptor de cada
+ * um dentro de "Seus números" — o mesmo lugar onde você vê o que já está
+ * ligado. Marcar numa lista e confirmar noutro botão era um passo a mais para
+ * a mesma decisão.
+ */
 
 async function carregarCanais() {
   const rows = await api('/api/channels');
@@ -890,6 +889,204 @@ async function carregarConfig() {
   $('evo-url').value = s.evolution_api_url || '';
 }
 
+/* ==================== ADICIONAR GRUPO PARA OBSERVAR (2 passos) ==================== */
+
+let addNumeros = [];
+let addEscolhido = null;
+
+/*
+ * Passo 1 — só números CONECTADOS. Instância desligada não tem grupo para
+ * listar (a Evolution espera até estourar o tempo), então oferecê-la seria
+ * oferecer um caminho que não leva a lugar nenhum.
+ */
+async function carregarAddNumeros() {
+  const alvo = $('add-numeros');
+  if (!alvo) return;
+  alvo.innerHTML = '<div class="nota" style="padding:10px">carregando seus números…</div>';
+  let r;
+  try { r = await api('/api/numeros'); } catch (e) {
+    alvo.innerHTML = '<div class="nota err" style="padding:10px">' + esc(e.message) + '</div>';
+    return;
+  }
+  if (r.evolutionConfigurada === false) {
+    alvo.innerHTML = vazio('Evolution não configurada',
+      'Preencha a URL e a chave em Config para o painel enxergar seus números.',
+      '<button class="btn" data-ir="config">Ir para Config</button>');
+    return;
+  }
+  addNumeros = (r.numeros || []).filter((n) => n.conectada);
+  if (!addNumeros.length) {
+    alvo.innerHTML = vazio('Nenhum número conectado agora',
+      'Só dá para listar grupos de um número ligado. Conecte um em Conexões, ou cole o id do grupo à mão aqui embaixo.',
+      '<button class="btn" data-ir="conexoes">Ir para Conexões</button>');
+    return;
+  }
+  alvo.innerHTML = addNumeros.map((n, i) =>
+    '<button class="cartao-escolha" data-add-num="' + i + '">' +
+    '<span class="ce-titulo">' + esc(n.instancia) + '</span>' +
+    '<span class="ce-desc">' + (n.numero ? '+' + esc(n.numero) : 'sem número') + ' · ' +
+    n.grupos.length + ' grupo(s)</span>' +
+    '<span class="ce-ir">ver grupos →</span></button>').join('');
+}
+
+/* Passo 2 — lista de grupos daquele número, filtrável. */
+function abrirAddGrupos(indice) {
+  addEscolhido = addNumeros[indice];
+  if (!addEscolhido) return;
+  $('add-passo-numero').style.display = 'none';
+  $('add-passo-grupo').style.display = 'block';
+  $('btn-add-recomecar').style.display = '';
+  $('add-num-nome').textContent = addEscolhido.instancia;
+  $('add-filtro').value = '';
+  desenharAddGrupos('');
+  $('add-filtro').focus();
+}
+
+function desenharAddGrupos(filtro) {
+  const f = normaliza(filtro);
+  const lista = addEscolhido.grupos.filter((g) => !f || normaliza(g.nome).includes(f));
+  $('add-grupos').innerHTML = lista.length
+    ? lista.map((g) => {
+        const jaObservado = !!(g.observado && g.observado.ativo);
+        return '<div class="linha-escolha">' +
+          '<div><b>' + esc(g.nome) + '</b>' +
+          (jaObservado ? ' <span class="tag eles">já observado</span>' : '') +
+          '<div class="nota mono">' + esc(g.jid) + '</div></div>' +
+          (jaObservado
+            ? '<span class="nota">nada a fazer</span>'
+            : '<button class="btn pequeno" data-add-jid="' + esc(g.jid) + '" data-add-nome="' + esc(g.nome) + '">observar</button>') +
+          '</div>';
+      }).join('')
+    : '<div class="nota" style="padding:12px">nenhum grupo com esse nome.</div>';
+}
+
+/** Sem acento e em minúscula — filtrar por nome tem que funcionar com "promocao". */
+function normaliza(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+function voltarAddNumero() {
+  addEscolhido = null;
+  $('add-passo-numero').style.display = '';
+  $('add-passo-grupo').style.display = 'none';
+  $('btn-add-recomecar').style.display = 'none';
+}
+
+async function observarDaLista(jid, nome) {
+  try {
+    const r = await enviar('/api/intel/observar', 'POST', {
+      jid, nome,
+      instancia: addEscolhido ? addEscolhido.instancia : '',
+      kind: 'promo',
+    });
+    msg('g-msg', (r.passos || ['grupo marcado']).join(' · '), r.webhookOk ? 'ok' : 'alerta');
+    if (addEscolhido) {
+      const g = addEscolhido.grupos.find((x) => x.jid === jid);
+      if (g) g.observado = { kind: 'promo', ativo: true };
+      desenharAddGrupos($('add-filtro').value);
+    }
+    carregarGrupos();
+  } catch (e) {
+    msg('g-msg', e.message, 'err');
+  }
+}
+
+/* ==================== CONEXÕES: escolha de tela e passos ==================== */
+
+/*
+ * A aba abre num MENU, não numa tela cheia. Conectar um número e administrar os
+ * que já existem são tarefas diferentes, feitas em momentos diferentes — juntar
+ * as duas no mesmo scroll obrigava a percorrer a tarefa que não interessa para
+ * chegar na que interessa.
+ */
+function abrirSubtela(nome) {
+  const menu = $('conexoes-menu');
+  const a = $('tela-numeros');
+  const b = $('tela-conectar');
+  if (!menu || !a || !b) return;
+  menu.style.display = nome ? 'none' : '';
+  a.style.display = nome === 'numeros' ? 'block' : 'none';
+  b.style.display = nome === 'conectar' ? 'block' : 'none';
+  if (nome === 'numeros') { guardar(carregarNumeros, 'numeros'); guardar(carregarCanais, 'lista-canais'); }
+  if (nome === 'conectar') passoConectar(1);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/*
+ * Um passo por vez. O seguinte só abre quando o anterior termina, porque a
+ * ordem aqui não é sugestão: sem instância criada não há QR, e sem QR lido não
+ * há conexão para verificar. Mostrar os três juntos convidava a clicar no 3
+ * primeiro e concluir que estava quebrado.
+ */
+let passoAtual = 1;
+function passoConectar(n) {
+  passoAtual = n;
+  document.querySelectorAll('#passos-conectar .passo').forEach((li) => {
+    const p = Number(li.dataset.passo);
+    li.classList.toggle('ativo', p === n);
+    li.classList.toggle('feito', p < n);
+    li.classList.toggle('travado', p > n);
+  });
+}
+
+/* ==================== INTERRUPTOR DE OBSERVAÇÃO ==================== */
+
+/*
+ * ON/OFF de verdade, não uma mensagem depois do clique. O dono pediu assim e
+ * está certo: "observar" é um ESTADO do grupo, e estado se mostra com um
+ * controle que reflete o estado — não com uma confirmação que some.
+ */
+function interruptor(ligado, attrs, rotulo) {
+  return '<button class="interruptor' + (ligado ? ' on' : '') + '" role="switch" aria-checked="' +
+    (ligado ? 'true' : 'false') + '" ' + attrs + '>' +
+    '<span class="i-trilho"><span class="i-bola"></span></span>' +
+    '<span class="i-rot">' + rotulo + (ligado ? ' ON' : ' OFF') + '</span></button>';
+}
+
+async function alternarObservacao(botao) {
+  const jid = botao.dataset.obsJid;
+  const ligado = botao.getAttribute('aria-checked') === 'true';
+  botao.disabled = true;
+  try {
+    if (ligado) {
+      await enviar('/api/intel/observar/' + encodeURIComponent(jid), 'DELETE');
+    } else {
+      await enviar('/api/intel/observar', 'POST', {
+        jid,
+        nome: botao.dataset.obsNome,
+        instancia: botao.dataset.obsInst,
+        kind: botao.dataset.obsTipo || 'promo',
+      });
+    }
+    await carregarNumeros();
+  } catch (e) {
+    alert('não deu: ' + e.message);
+    botao.disabled = false;
+  }
+}
+
+async function alternarDisparo(botao) {
+  const ligado = botao.getAttribute('aria-checked') === 'true';
+  botao.disabled = true;
+  try {
+    if (ligado) {
+      await api('/api/channels/' + botao.dataset.canalId, { method: 'DELETE' });
+    } else {
+      await enviar('/api/channels', 'POST', {
+        role: 'poster',
+        instance_ref: botao.dataset.dispInst,
+        target_ref: botao.dataset.dispJid,
+        display_name: botao.dataset.dispNome,
+      });
+    }
+    await carregarNumeros();
+    carregarCanais();
+  } catch (e) {
+    alert('não deu: ' + e.message);
+    botao.disabled = false;
+  }
+}
+
 /* ==================== SEUS NÚMEROS (Conexões) ==================== */
 
 async function carregarNumeros() {
@@ -910,43 +1107,28 @@ async function carregarNumeros() {
     const grupos = n.grupos.length
       ? n.grupos.map((g) => {
           /*
-           * A etiqueta diz o que ESTE grupo já é para o motor. Sem ela, saber se
-           * um grupo já dispara exigia comparar jid entre duas telas na mão.
-           */
-          let etq = '<span class="tag neutro">não ligado</span>';
-          if (g.papel === 'poster') {
-            etq = g.canalStatus === 'active'
-              ? '<span class="tag feito">dispara</span>'
-              : '<span class="tag neutro">disparo pausado</span>';
-          } else if (g.papel === 'listener') {
-            etq = '<span class="tag entrada">escuta</span>';
-          }
-          if (g.observado) etq += ' <span class="tag eles">observado (' + esc(g.observado.kind) + ')</span>';
-          /*
-           * DUAS ações independentes: disparar e observar. Um grupo pode ser as
-           * duas coisas — o seu próprio, em que você posta E quer medir — então
-           * não são alternativas, são botões separados.
-           */
-          const bDisparo = g.canalId
-            ? '<button class="btn fantasma pequeno" data-fila-de="' + esc(g.canalId) + '">ver fila</button>'
-            : '<button class="btn fantasma pequeno" data-ligar="' + esc(g.jid) + '" data-inst="' + esc(n.instancia) + '" data-nome="' + esc(g.nome) + '">fazer disparar</button>';
-          /*
-           * O TIPO é deduzido, não perguntado: se o grupo já é canal de disparo,
-           * ele é SEU — e `proprio` é justamente o tipo que os relatórios
-           * excluem de "o que ELES escolhem". Perguntar num prompt seria pedir
-           * ao dono uma informação que o app já tem, e um clique distraído em
-           * "promo" contaminaria a análise em silêncio. Dá para trocar depois em
-           * Grupos observados.
+           * Dois interruptores por grupo, e nada de etiqueta separada: o estado
+           * está no próprio controle. Antes havia uma etiqueta ("dispara",
+           * "observado") mais um botão de ação — duas coisas dizendo a mesma
+           * verdade, que podiam discordar enquanto a tela não recarregava.
            */
           const tipo = g.canalId ? 'proprio' : 'promo';
-          const bObs = g.observado
-            ? '<button class="btn fantasma pequeno" data-ir="grupos">ver observação</button>'
-            : '<button class="btn fantasma pequeno" data-observar="' + esc(g.jid) + '" data-inst="' +
-              esc(n.instancia) + '" data-nome="' + esc(g.nome) + '" data-tipo="' + tipo + '">observar</button>';
-          const acao = bDisparo + bObs;
-          return '<div class="linha-grupo"><div><b>' + esc(g.nome) + '</b> ' + etq +
+          const bDisparo = interruptor(
+            !!(g.canalId && g.canalStatus === 'active'),
+            'data-disparo="1" data-canal-id="' + esc(g.canalId || '') + '" data-disp-jid="' + esc(g.jid) +
+            '" data-disp-inst="' + esc(n.instancia) + '" data-disp-nome="' + esc(g.nome) + '"',
+            'Disparo');
+          const bObs = interruptor(
+            !!(g.observado && g.observado.ativo),
+            'data-obs-jid="' + esc(g.jid) + '" data-obs-inst="' + esc(n.instancia) +
+            '" data-obs-nome="' + esc(g.nome) + '" data-obs-tipo="' + tipo + '"',
+            'Observar');
+          const extra = g.observado
+            ? '<span class="tag eles">' + esc(g.observado.kind) + '</span>'
+            : '';
+          return '<div class="linha-grupo"><div><b>' + esc(g.nome) + '</b> ' + extra +
             '<div class="nota mono">' + esc(g.jid) + '</div></div>' +
-            '<div class="acoes compacta">' + acao + '</div></div>';
+            '<div class="acoes compacta">' + bDisparo + bObs + '</div></div>';
         }).join('')
       : '<div class="nota" style="padding:8px">' +
         (n.conectada
@@ -1089,6 +1271,94 @@ async function salvarCadencia(id) {
   } catch (e) {
     msg('cad-msg-' + id, e.message, 'err');
   }
+}
+
+/* ==================== DE QUE CADA GRUPO FALA ==================== */
+
+const PERFIL_ROT = {
+  especialista: { rot: 'especialista', exp: 'concentra a maior parte do que posta numa categoria só' },
+  misto: { rot: 'misto', exp: 'gira em torno de poucas categorias, mas não é de uma só' },
+  generalista: { rot: 'generalista', exp: 'posta de tudo um pouco — sem categoria dominante' },
+  amostra_pequena: { rot: 'amostra pequena', exp: 'ainda não dá para dizer: poucos posts classificados' },
+};
+
+/*
+ * Padrão: SÓ SHOPEE. Os grupos postam de várias lojas — o grupo real que o dono
+ * mostrou era 10 Amazon + 7 Mercado Livre e zero Shopee. Misturar tudo responde
+ * "de que eles falam", não "de que eles falam NA SHOPEE", que é a única parte
+ * com que o motor compete. O outro modo fica no interruptor.
+ */
+let nichoTodas = false;
+
+async function carregarNicho() {
+  const alvo = $('nicho');
+  if (!alvo) return;
+  const r = await api('/api/intel/nicho?dias=30' + (nichoTodas ? '&todas=1' : ''));
+
+  /*
+   * Sem a árvore baixada, NENHUM post tem categoria e todos os grupos sairiam
+   * como "amostra pequena" — sintoma que parece falta de dado e é falta de um
+   * passo de configuração. Dizer qual é vale mais que mostrar zeros.
+   */
+  if (!r.arvoreSincronizada) {
+    alvo.innerHTML = vazio('Categorias da Shopee ainda não baixadas',
+      'A categoria de cada oferta vem carimbada pela Shopee, mas o nome dela está numa árvore pública que precisa ser baixada uma vez.',
+      '<button class="btn" data-acao="sync-cat">Baixar categorias agora</button>');
+    return;
+  }
+  if (!r.grupos || !r.grupos.length) {
+    alvo.innerHTML = vazio('Nenhum grupo observado ainda',
+      'Marque grupos para observar e deixe rodar alguns dias — o perfil sai do que eles postam, não de um rótulo escolhido à mão.');
+    return;
+  }
+
+  const chave = interruptor(!nichoTodas, 'data-nicho-shopee="1"', 'Só Shopee');
+  const cabeca = '<div class="cabeca-painel" style="margin-bottom:12px">' + chave +
+    '<span class="nota">' + (nichoTodas
+      ? 'mostrando TODAS as lojas — o perfil mistura Shopee, Amazon, Mercado Livre…'
+      : 'mostrando só o que eles postam DA SHOPEE — é a fatia com que o motor compete') +
+    '</span></div>';
+
+  alvo.innerHTML = cabeca + r.grupos.map((g) => {
+    const p = PERFIL_ROT[g.perfil] || PERFIL_ROT.amostra_pequena;
+    const barras = g.categorias.length
+      ? '<div class="barras-cat">' + g.categorias.map((c) =>
+          '<div class="barra-cat"><span class="bc-nome">' + esc(c.nome) + '</span>' +
+          '<span class="bc-trilho"><i style="width:' + c.pct + '%"></i></span>' +
+          '<span class="bc-n">' + c.pct + '%</span></div>').join('') + '</div>'
+      : '<div class="nota">nenhum post classificado ainda</div>';
+
+    /*
+     * `postsClassificados` de `postsTotal` fica SEMPRE visível. Só dá para
+     * classificar post que casou com uma observação da API — post de Amazon ou
+     * Mercado Livre fica de fora. Um perfil calculado sobre 12 de 300 posts não
+     * é o perfil do grupo, e esconder o denominador transformaria isso numa
+     * afirmação que o dado não sustenta.
+     */
+    return '<div class="painel">' +
+      '<div class="cabeca-painel"><h3 class="t-titulo">' + esc(g.nome) + '</h3>' +
+      '<span class="tag ' + (g.perfil === 'amostra_pequena' ? 'neutro' : 'eles') + '">' + p.rot + '</span></div>' +
+      '<div class="nota" style="margin-top:0">' + p.exp + '</div>' +
+      '<div class="nota">' + g.postsClassificados + ' de ' + g.postsTotal +
+      ' posts classificados · ' + g.categoriasDistintas + ' categoria(s)' +
+      (g.concentracao != null ? ' · concentração ' + g.concentracao : '') + '</div>' +
+      barras + plataformasDe(g) + '</div>';
+  }).join('');
+}
+
+/*
+ * De que LOJAS o grupo posta. Calculado sempre sobre tudo, mesmo com o filtro
+ * ligado — é isto que explica "só 12 de 300 classificados": pode ser matcher
+ * fraco, ou pode ser que 288 eram de outra loja. As duas leituras levam a
+ * decisões opostas, e sem esta linha não dá para distinguir.
+ */
+function plataformasDe(g) {
+  if (!g.plataformas || !g.plataformas.length) return '';
+  const fatias = g.plataformas.map((p) =>
+    '<span class="fatia-plat' + (p.nome === 'shopee' ? ' shopee' : '') + '">' +
+    esc(p.nome) + ' ' + p.pct + '%</span>').join('');
+  return '<div class="nota" style="margin-top:10px">de onde vêm os ' + g.postsNaJanela +
+    ' posts: <span class="plats">' + fatias + '</span></div>';
 }
 
 /* ==================== DE ONDE VEM A OFERTA DELES ==================== */
@@ -1245,6 +1515,22 @@ document.addEventListener('click', async (ev) => {
   const btnCad = ev.target.closest('[data-salvar-cad]');
   if (btnCad) return salvarCadencia(btnCad.dataset.salvarCad);
 
+  // Interruptores (estado, não ação) e navegação entre as subtelas de Conexões.
+  const sw = ev.target.closest('.interruptor');
+  if (sw) {
+    if (sw.dataset.nichoShopee) { nichoTodas = !nichoTodas; return carregarNicho(); }
+    return sw.dataset.disparo ? alternarDisparo(sw) : alternarObservacao(sw);
+  }
+  const addNum = ev.target.closest('[data-add-num]');
+  if (addNum) return abrirAddGrupos(Number(addNum.dataset.addNum));
+  const addJid = ev.target.closest('[data-add-jid]');
+  if (addJid) return observarDaLista(addJid.dataset.addJid, addJid.dataset.addNome);
+  if (ev.target.closest('#btn-add-recomecar')) return voltarAddNumero();
+
+  const cartao = ev.target.closest('[data-tela]');
+  if (cartao) return abrirSubtela(cartao.dataset.tela);
+  if (ev.target.closest('[data-voltar-conexoes]')) return abrirSubtela(null);
+
   const alvo = ev.target.closest('[data-acao],[data-ir],[data-oferta],[data-canal],[data-grupo],[data-post],[data-fila-de],[data-ligar],[data-observar]');
   if (!alvo) return;
 
@@ -1255,25 +1541,6 @@ document.addEventListener('click', async (ev) => {
    * exigiria estado de seleção que ninguém pediu, e a tela já é dobrável.
    */
   if (alvo.dataset.filaDe) return abrir('filas', true);
-
-  /*
-   * "observar": marca o grupo para análise E garante o webhook no mesmo passo.
-   * Os dois juntos de propósito — cadastrar sem o webhook é um nada silencioso:
-   * o painel mostraria o grupo como observado e nenhuma mensagem chegaria nunca.
-   */
-  if (alvo.dataset.observar) {
-    try {
-      const r = await enviar('/api/intel/observar', 'POST', {
-        jid: alvo.dataset.observar,
-        nome: alvo.dataset.nome,
-        instancia: alvo.dataset.inst,
-        kind: alvo.dataset.tipo || 'promo',
-      });
-      alert((r.passos || []).join('\n'));
-      await carregarNumeros();
-    } catch (e) { alert('não deu: ' + e.message); }
-    return;
-  }
 
   // "fazer disparar": registra o grupo como canal direto da lista do número.
   if (alvo.dataset.ligar) {
@@ -1292,6 +1559,14 @@ document.addEventListener('click', async (ev) => {
 
   const acao = alvo.dataset.acao;
   if (acao === 'numeros') return carregarNumeros();
+  if (acao === 'sync-cat') {
+    try {
+      const r = await enviar('/api/shopee/categorias/sync', 'POST');
+      alert('categorias baixadas: ' + r.nivel1 + ' principais, ' + r.nivel2 + ' subcategorias.');
+      carregarNicho();
+    } catch (e) { alert('não deu: ' + e.message); }
+    return;
+  }
   if (acao === 'recarregar') return recarregar();
   if (acao === 'ciclo') return buscarAgora();
   if (acao === 'limpar-filtros') return limparFiltros();
@@ -1446,14 +1721,22 @@ function ligar() {
 
   // conexões
   $('c-role').addEventListener('change', () => {
-    $('extra-poster').style.display = cFuncao() === 'poster' ? 'block' : 'none';
-    $('extra-listener').style.display = cFuncao() === 'listener' ? 'block' : 'none';
+    // Os blocos extra-poster/extra-listener sumiram: o fluxo agora é em passos
+    // e o webhook virou ação explícita do passo 3, para os dois papéis.
+  });
+  $('btn-pular-1').addEventListener('click', () => {
+    if (!cNome()) return msg('c-msg', 'digite o nome exato da instância que já existe', 'err');
+    passoConectar(3);
+  });
+  $('add-filtro').addEventListener('input', (e) => {
+    if (addEscolhido) desenharAddGrupos(e.target.value);
   });
   $('btn-criar-inst').addEventListener('click', async () => {
     try {
       if (!cNome()) return msg('c-msg', 'informe um nome', 'err');
       const r = await enviar('/api/instances', 'POST', { name: cNome(), role: cFuncao() });
-      msg('c-msg', 'provisionado — ' + Object.entries(r.steps || {}).map(([k, v]) => k + ': ' + v).join(' · ') + '. Agora mostre o QR.', 'ok');
+      msg('c-msg', 'provisionado — ' + Object.entries(r.steps || {}).map(([k, v]) => k + ': ' + v).join(' · '), 'ok');
+      passoConectar(2); // só agora existe instância para gerar QR
     } catch (e) { msg('c-msg', e.message, 'err'); }
   });
   $('btn-qr').addEventListener('click', async () => {
@@ -1462,6 +1745,7 @@ function ligar() {
       const src = r.base64 ? (r.base64.startsWith('data:') ? r.base64 : 'data:image/png;base64,' + r.base64) : '';
       $('qr').innerHTML = src ? `<img src="${src}" alt="QR code para conectar o WhatsApp"/>` : '';
       msg('c-msg', (r.pairingCode ? 'código: ' + r.pairingCode + ' — ' : '') + 'escaneie o QR no WhatsApp desse número.', 'alerta');
+      passoConectar(3); // com o QR na tela, o próximo passo é confirmar
     } catch (e) { msg('c-msg', e.message, 'err'); }
   });
   $('btn-estado').addEventListener('click', async () => {
@@ -1469,16 +1753,11 @@ function ligar() {
       const r = await api('/api/instances/' + encodeURIComponent(cNome()) + '/state');
       const ok = r.state === 'open';
       msg('c-msg', 'estado: ' + r.state + (ok ? ' — conectado' : ' (precisa ficar "open")'), ok ? 'ok' : 'alerta');
-      if (ok) $('qr').innerHTML = '';
-    } catch (e) { msg('c-msg', e.message, 'err'); }
-  });
-  $('btn-listar-grupos').addEventListener('click', async () => {
-    try {
-      const g = await api('/api/instances/' + encodeURIComponent(cNome()) + '/groups');
-      $('c-grupos').innerHTML = g.length
-        ? g.map((x) => `<label><input type="checkbox" value="${esc(x.id)}" data-subject="${esc(x.subject || x.id)}"> ${esc(x.subject || x.id)}</label>`).join('')
-        : '<div class="nota" style="padding:8px">nenhum grupo encontrado nesse número.</div>';
-      msg('c-msg', g.length + ' grupos — marque os que interessam', 'ok');
+      if (ok) {
+        $('qr').innerHTML = '';
+        // Conectou: o passo 3 fica marcado como concluído (nenhum passo "ativo").
+        passoConectar(4);
+      }
     } catch (e) { msg('c-msg', e.message, 'err'); }
   });
   $('btn-webhook').addEventListener('click', async () => {
@@ -1528,30 +1807,6 @@ function ligar() {
       b.disabled = false;
       b.textContent = antes;
     }
-  });
-  $('btn-registrar-canal').addEventListener('click', async () => {
-    try {
-      if (cFuncao() === 'listener') {
-        await enviar('/api/channels', 'POST', { role: 'listener', instance_ref: cNome(), display_name: cNome() });
-        msg('c-msg', 'listener "' + cNome() + '" registrado', 'ok');
-        return carregarCanais();
-      }
-      const marcados = gruposMarcados();
-      if (!marcados.length) return msg('c-msg', 'marque ao menos um grupo (ou cole um id)', 'err');
-      const r = await enviar('/api/channels/bulk', 'POST', { instance_ref: cNome(), groups: marcados });
-      msg('c-msg', r.created + ' grupo(s) registrados para disparo', 'ok');
-      $('c-grupo-manual').value = '';
-      carregarCanais();
-    } catch (e) { msg('c-msg', e.message, 'err'); }
-  });
-  $('btn-registrar-intel').addEventListener('click', async () => {
-    try {
-      const marcados = gruposMarcados();
-      if (!marcados.length) return msg('c-msg', 'marque ao menos um grupo (ou cole um id)', 'err');
-      const r = await enviar('/api/intel/groups/bulk', 'POST', { groups: marcados, instance_ref: cNome(), kind: 'promo' });
-      msg('c-msg', r.created + ' grupo(s) em observação — ajuste o tipo na aba Grupos observados', 'ok');
-      $('c-grupo-manual').value = '';
-    } catch (e) { msg('c-msg', e.message, 'err'); }
   });
 
   // config

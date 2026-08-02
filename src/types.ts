@@ -19,6 +19,8 @@ export interface NormalizedOffer {
   price: number | null;
   originalPrice: number | null;
   discountPct: number | null;
+  /** IDs de categoria oficiais da Shopee (l1-l3). Só ids; o nome vem da árvore. */
+  catIds?: number[] | null;
   savingsBrl: number | null;
   commissionRate: number | null; // decimal (0.07 = 7%)
   category: string | null;

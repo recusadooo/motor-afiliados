@@ -442,6 +442,8 @@ interface GravarParams {
     ratingStar: number | null;
     wouldPass: boolean | null;
     rejectReason: string | null;
+    catNome: string | null;
+    catRaiz: string | null;
   } | null;
 }
 
@@ -466,8 +468,8 @@ async function gravarMatch(p: GravarParams): Promise<void> {
          (post_id, observation_id, product_id, method, confidence, title_sim,
           price_delta_pct, lag_seconds, first_seen_at, verdict,
           obs_title, obs_price, obs_commission_brl, obs_sales, obs_rating_star,
-          obs_would_pass, obs_reject_reason)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+          obs_would_pass, obs_reject_reason, obs_cat_nome, obs_cat_raiz)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
        ON CONFLICT (post_id) DO UPDATE SET
          observation_id  = EXCLUDED.observation_id,
          product_id      = EXCLUDED.product_id,
@@ -493,6 +495,8 @@ async function gravarMatch(p: GravarParams): Promise<void> {
          obs_rating_star    = COALESCE(EXCLUDED.obs_rating_star,    intel_matches.obs_rating_star),
          obs_would_pass     = COALESCE(EXCLUDED.obs_would_pass,     intel_matches.obs_would_pass),
          obs_reject_reason  = COALESCE(EXCLUDED.obs_reject_reason,  intel_matches.obs_reject_reason),
+         obs_cat_nome       = COALESCE(EXCLUDED.obs_cat_nome,       intel_matches.obs_cat_nome),
+         obs_cat_raiz       = COALESCE(EXCLUDED.obs_cat_raiz,       intel_matches.obs_cat_raiz),
          -- IS DISTINCT FROM (não <>) de propósito: <> com um lado NULL
          -- devolve NULL, e o CASE trata condição NULL como "não bateu" —
          -- cairia no ELSE bem quando o par se perde (observação antiga ->
@@ -511,6 +515,7 @@ async function gravarMatch(p: GravarParams): Promise<void> {
         p.obs?.title ?? null, p.obs?.price ?? null, p.obs?.commissionBrl ?? null,
         p.obs?.sales ?? null, p.obs?.ratingStar ?? null,
         p.obs?.wouldPass ?? null, p.obs?.rejectReason ?? null,
+        p.obs?.catNome ?? null, p.obs?.catRaiz ?? null,
       ],
     );
     await c.query(`UPDATE intel_posts SET matched_at = now() WHERE id = $1`, [p.postId]);
@@ -601,8 +606,11 @@ async function fotografiaDaObservacao(
     rating_star: string | null;
     would_pass: boolean | null;
     reject_reason: string | null;
+    cat_nome: string | null;
+    cat_raiz: string | null;
   }>(
-    `SELECT title, price, commission_brl, sales, rating_star, would_pass, reject_reason
+    `SELECT title, price, commission_brl, sales, rating_star, would_pass, reject_reason,
+            cat_nome, cat_raiz
        FROM api_observations WHERE id = $1`,
     [observationId],
   );
@@ -614,6 +622,8 @@ async function fotografiaDaObservacao(
     ratingStar: toNum(r?.rating_star),
     wouldPass: r?.would_pass ?? null,
     rejectReason: r?.reject_reason ?? null,
+    catNome: r?.cat_nome ?? null,
+    catRaiz: r?.cat_raiz ?? null,
   };
 }
 

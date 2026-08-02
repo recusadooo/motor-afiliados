@@ -1,0 +1,228 @@
+/* ============================================================
+   COMPONENTES DE FLUXO
+   ============================================================
+   Carregado DEPOIS de painel.css, de propósito: aqui moram só
+   os controles que a reestruturação de navegação trouxe, e
+   mantê-los fora do sistema visual base evita que uma mudança
+   de tema apague um comportamento de interface.
+
+   Tudo aqui usa as variáveis do tema (--papel, --tinta,
+   --ambar, --verde, --regra). Nenhuma cor literal, para que
+   trocar o tema troque estes componentes junto.
+   ============================================================ */
+
+/* ---------- escolha de tela ----------
+   A aba abre num menu em vez de despejar tudo. Cada cartão é uma
+   TAREFA, não uma seção: "seus números" e "conectar" acontecem em
+   momentos diferentes da vida do usuário e não competem entre si. */
+.escolha-telas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+  margin: 8px 0 24px;
+}
+.escolha-telas.compacta { margin-bottom: 8px; }
+
+.cartao-escolha {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  padding: 20px;
+  background: transparent;
+  border: 1px solid var(--regra, #C9C9C2);
+  border-radius: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: border-color 0.14s, transform 0.14s;
+}
+.cartao-escolha:hover,
+.cartao-escolha:focus-visible {
+  border-color: var(--tinta, #191B1E);
+  transform: translateY(-1px);
+}
+.cartao-escolha .ce-num {
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  color: var(--tinta-3, #6A6E72);
+}
+.cartao-escolha .ce-titulo {
+  font-family: var(--display, inherit);
+  font-weight: 600;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
+}
+.cartao-escolha .ce-desc {
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--tinta-3, #6A6E72);
+}
+.cartao-escolha .ce-ir {
+  margin-top: 6px;
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ambar-txt, #9D5E00);
+}
+
+/* As subtelas começam escondidas: quem manda é `abrirSubtela()`. */
+.subtela { display: none; }
+
+/* ---------- passo a passo ----------
+   O passo travado fica VISÍVEL, só apagado. Esconder por completo
+   faria o usuário perder a noção de quantos passos faltam — e a
+   pergunta "quanto falta" é a que mais gera abandono num fluxo. */
+.passos { list-style: none; margin: 0; padding: 0; }
+
+.passo {
+  border-left: 2px solid var(--regra, #C9C9C2);
+  padding: 0 0 22px 20px;
+  position: relative;
+}
+.passo:last-child { padding-bottom: 0; }
+
+.passo-cabeca { display: flex; align-items: center; gap: 10px; }
+.passo-num {
+  position: absolute;
+  left: -13px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--papel, #F2F2EF);
+  border: 1px solid var(--regra, #C9C9C2);
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: var(--tinta-3, #6A6E72);
+}
+.passo-titulo {
+  font-family: var(--display, inherit);
+  font-weight: 600;
+  font-size: 1rem;
+  letter-spacing: -0.015em;
+}
+.passo-corpo { padding-top: 10px; }
+.passo-acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+.passo.ativo { border-left-color: var(--ambar, #B26B00); }
+.passo.ativo .passo-num {
+  border-color: var(--ambar, #B26B00);
+  color: var(--ambar-txt, #9D5E00);
+}
+
+.passo.feito { border-left-color: var(--verde, #1E7A3C); }
+.passo.feito .passo-num {
+  border-color: var(--verde, #1E7A3C);
+  color: var(--verde, #1E7A3C);
+}
+/* O passo concluído recolhe o corpo: já cumpriu o papel e a tela é
+   sobre o que falta, não sobre o que passou. */
+.passo.feito .passo-corpo { display: none; }
+.passo.feito .passo-num::after { content: "✓"; }
+.passo.feito .passo-num { font-size: 0.7rem; }
+.passo.feito .passo-num { color: transparent; }
+.passo.feito .passo-num::after { color: var(--verde, #1E7A3C); position: absolute; }
+
+.passo.travado { opacity: 0.42; }
+.passo.travado .passo-corpo { pointer-events: none; }
+
+/* ---------- interruptor ON/OFF ----------
+   Controle de ESTADO, não botão de ação: o que está na tela é o que
+   vale agora. A versão anterior era um botão "observar" que respondia
+   com uma mensagem — o usuário clicava e tinha que ler um texto para
+   saber em que estado ficou. */
+.interruptor {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px 5px 6px;
+  background: transparent;
+  border: 1px solid var(--regra, #C9C9C2);
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.66rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--tinta-3, #6A6E72);
+  transition: border-color 0.14s, color 0.14s;
+}
+.interruptor:disabled { opacity: 0.5; cursor: progress; }
+
+.interruptor .i-trilho {
+  width: 30px;
+  height: 17px;
+  border-radius: 999px;
+  background: var(--regra, #C9C9C2);
+  position: relative;
+  transition: background-color 0.16s;
+  flex: none;
+}
+.interruptor .i-bola {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--papel, #F2F2EF);
+  transition: transform 0.16s;
+}
+.interruptor.on { border-color: var(--verde, #1E7A3C); color: var(--verde, #1E7A3C); }
+.interruptor.on .i-trilho { background: var(--verde, #1E7A3C); }
+.interruptor.on .i-bola { transform: translateX(13px); }
+
+/* Desligado NÃO é vermelho. Vermelho é falha; desligado é escolha do
+   dono, e pintar escolha de erro é o painel discordando do usuário. */
+.interruptor:not(.on):hover { border-color: var(--tinta, #191B1E); color: var(--tinta, #191B1E); }
+
+/* ---------- lista de escolha (grupos) ---------- */
+.lista-escolha { padding: 0; max-height: 420px; overflow-y: auto; }
+.linha-escolha {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+  border-top: 1px solid var(--regra, #C9C9C2);
+}
+.linha-escolha:first-child { border-top: 0; }
+
+@media (max-width: 560px) {
+  .linha-escolha { flex-wrap: wrap; }
+  .interruptor .i-rot { display: none; }
+}
+
+/* ---------- perfil de categoria por grupo ----------
+   Barras horizontais em vez de rosca: comparar fatias entre GRUPOS diferentes
+   é a tarefa aqui, e comprimento alinhado numa base comum se compara de
+   relance — ângulo, não. */
+.barras-cat { margin-top: 12px; display: grid; gap: 6px; }
+.barra-cat {
+  display: grid;
+  grid-template-columns: minmax(90px, 1.4fr) 3fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.72rem;
+}
+.barra-cat .bc-nome {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--tinta-3, #6A6E72);
+}
+.barra-cat .bc-trilho {
+  height: 8px; background: var(--regra, #C9C9C2); position: relative; display: block;
+}
+.barra-cat .bc-trilho i { display: block; height: 100%; background: var(--ambar, #B26B00); }
+.barra-cat .bc-n { font-variant-numeric: tabular-nums; color: var(--tinta-3, #6A6E72); }
+
+/* ---------- de que loja vêm os posts ---------- */
+.plats { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.fatia-plat {
+  font-size: 0.64rem; letter-spacing: 0.04em; padding: 2px 7px;
+  border: 1px solid var(--regra, #C9C9C2); color: var(--tinta-3, #6A6E72);
+}
+/* A Shopee ganha destaque porque é a única loja com que o motor compete —
+   as outras são contexto, não concorrência direta. */
+.fatia-plat.shopee { border-color: var(--ambar, #B26B00); color: var(--ambar, #B26B00); }

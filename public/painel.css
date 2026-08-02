@@ -1,78 +1,96 @@
 /* ============================================================
-   MOTOR::AFILIADO — sistema visual do painel de operação
+   MOTOR::AFILIADO — sistema visual
    ============================================================
 
-   Três decisões governam este arquivo. Se você for mexer, mexa
-   sabendo delas:
+   TEMA: saída de impressora sobre papel, herdado da referência
+   aprovada pelo dono (`exemplo_de_design.html`). Fundo claro
+   sólido — a pauta listrada da referência foi descartada por
+   pedido dele.
 
-   1. SUPERFÍCIE EM TRÊS NÍVEIS. Antes, oferta, canal e falha eram
-      todos a mesma caixa (mesma borda, mesmo raio, mesmo fundo) e
-      nada guiava o olho. Agora: a página é o vazio, o painel sobe,
-      e a lista dentro do painel AFUNDA num poço. Hierarquia vem da
-      profundidade, não de mais borda.
+   Três decisões governam este arquivo:
 
-   2. UMA COR, UM SIGNIFICADO. O âmbar era botão primário, oferta
-      aprovada, fura-fila e aba ativa ao mesmo tempo — quando tudo
-      é destaque, nada é. Agora cada matiz carrega exatamente um
-      sentido, e nenhum elemento decorativo tem direito a cor.
+   1. HIERARQUIA SEM PROFUNDIDADE. No tema escuro anterior, nível
+      se fazia escurecendo a superfície. No papel isso não existe:
+      quem separa é RÉGUA, ESPAÇO e PESO. Painel tem borda fina,
+      poço tem fundo levemente rebaixado, e o resto é respiro.
+
+   2. UMA COR, UM SIGNIFICADO. A paleta da referência tem duas
+      cores de dado (âmbar e verde) e uma neutra. Foi preciso
+      derivar UMA terceira para falha — ver `--corte` abaixo.
 
    3. O VAZIO É TELA DE PRIMEIRA CLASSE. Este painel passa a maior
-      parte do tempo sem canal conectado, sem envio, sem falha. O
-      estado vazio não é exceção — é a tela principal, e por isso
-      tem o mesmo peso tipográfico do conteúdo e sempre termina
-      numa ação.
+      parte do tempo sem canal conectado e sem envio. O estado
+      vazio tem o mesmo peso tipográfico do conteúdo e termina
+      sempre numa ação.
    ============================================================ */
 
 :root {
-  /* ---- superfícies (nível 0 = página, 1 = painel, 2 = poço) ---- */
-  --void: #0e1116;
-  --panel: #161b22;
-  --well: #10151b;
-  --line: #232c38;
-  --line-forte: #35414f;
+  /* ---- superfícies ---- */
+  --papel: #F2F2EF;          /* fundo da página */
+  --panel: #F8F8F6;          /* painel: um degrau ACIMA do papel */
+  --well:  #EAEAE5;          /* poço: um degrau abaixo */
+  --void:  var(--papel);
+  --line:  #C9C9C2;
+  --regra: #C9C9C2;
+  /* Usado como traço de DADO na barra de origem (o "eco"), então
+     precisa de 3:1 — o #A8A8A0 dava 2,13. Escurecido o mínimo. */
+  --line-forte: #8A8A83;
 
   /* ---- tinta ---- */
-  --ink: #e9eff5;
-  --ink2: #a9b6c4;
-  --ink3: #6f7c8b;
+  --tinta:   #191B1E;
+  --tinta-3: #5A5E63;        /* escurecido de #6A6E72 p/ passar AA (ver abaixo) */
+  --ink:  var(--tinta);
+  --ink2: #3A3E43;
+  --ink3: var(--tinta-3);
 
-  /* ---- COR = SIGNIFICADO (ver decisão 2) ----------------------
-     nos      âmbar   o que o NOSSO motor fez, escolheu ou vai fazer
-     eles     magenta os concorrentes: grupos observados, posts deles
-     entrada  azul    matéria-prima crua que entrou no funil
-     feito    verde   concluído: enviado, casado, confirmado
-     corte    vermelho cortado, rejeitado, falhou
-     FRONTEIRA: estas cinco cores são vocabulário de DADO. Cromo de interface
-     (pílula ativa, aba, foco, caixa marcada) NÃO tem direito a elas — se tivesse,
-     um ponto colorido num gráfico deixaria de ter significado único. A única
-     EXCEÇÕES DELIBERADAS, todas longe de qualquer gráfico e todas justificadas
-     por serem afordância e não conteúdo: botão primário (preenchido, um por
-     tela), sublinhado da aba ativa (topo da página, é "você está aqui"), anel de
-     foco de teclado (transitório, e acessibilidade pede contraste alto e
-     consistência) e o accent da caixa de seleção. A pílula de filtro NÃO está
-     na lista: ela ficava a 40px do gráfico, na mesma faixa visual. ----------- */
-  --nos: #f5a524;
-  --eles: #de5f9e;
-  --entrada: #3b9eff;
-  --feito: #25d07b;
-  --corte: #f0503a;
+  /* ---- COR = SIGNIFICADO --------------------------------------
+     ambar   #B26B00  o que o NOSSO motor fez / atenção
+     verde   #1E7A3C  concluído: enviado, casado, ligado
+     entrada #1F5C8C  matéria-prima crua (o cardápio da API)
+     eles    #8A3D6B  os concorrentes
+     corte   #A32A1B  falhou, rejeitado, cortado
 
-  /* Versões de fundo (12% ~ 16%) — a cor cheia fica só na marca. */
-  --nos-fraco: rgba(245, 165, 36, 0.13);
-  --eles-fraco: rgba(222, 95, 158, 0.13);
-  --entrada-fraco: rgba(59, 158, 255, 0.12);
-  --feito-fraco: rgba(37, 208, 123, 0.12);
-  --corte-fraco: rgba(240, 80, 58, 0.12);
+     `--entrada`, `--eles` e `--corte` NÃO estão na referência: ela
+     só tem âmbar e verde, e o painel precisa distinguir cinco
+     coisas. Foram derivadas na MESMA família — tons de tinta densa
+     sobre papel, saturação e luminosidade próximas do âmbar
+     original — em vez de importadas de outra paleta. Nenhuma é
+     decorativa: cada uma nomeia um significado que já existia. */
+  /*
+   * ÂMBAR EM DOIS TONS, e isso é acessibilidade, não capricho. O
+   * #B26B00 da referência dá 3,75:1 sobre o papel: passa para
+   * elemento gráfico (mínimo 3) e REPROVA para texto (mínimo 4,5).
+   * Como aqui ele é as duas coisas — preenchimento de barra E
+   * rótulo —, o tom da referência fica no traço e um tom 12% mais
+   * escuro atende o texto. Medido, não estimado.
+   */
+  --ambar:     #B26B00;   /* preenchimento / traço — 3,75:1, ok p/ gráfico */
+  --ambar-txt: #9D5E00;   /* texto — 4,64:1, passa AA */
+  --verde:   #1E7A3C;
+  --entrada: #1F5C8C;
+  --eles:    #8A3D6B;
+  --corte:   #A32A1B;
 
-  /* ---- tipografia ---- */
-  --display: "Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
-  --body: "IBM Plex Sans", system-ui, "Segoe UI", Roboto, sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  --nos: var(--ambar);
+  --feito: var(--verde);
 
-  /* ---- ritmo ---- */
-  --r-sm: 8px;
-  --r: 12px;
-  --r-lg: 16px;
+  /* Fundos fracos: a cor cheia fica no traço e no texto. */
+  --nos-fraco:     rgba(178, 107, 0, 0.10);
+  --feito-fraco:   rgba(30, 122, 60, 0.10);
+  --entrada-fraco: rgba(31, 92, 140, 0.10);
+  --eles-fraco:    rgba(138, 61, 107, 0.10);
+  --corte-fraco:   rgba(163, 42, 27, 0.10);
+
+  /* ---- tipografia da referência ---- */
+  --display: "Unbounded", "IBM Plex Sans", system-ui, sans-serif;
+  --body:    "Martian Mono", ui-monospace, Consolas, monospace;
+  --mono:    "Martian Mono", ui-monospace, Consolas, monospace;
+  --titulo:  var(--display);
+
+  /* ---- ritmo: cantos retos, como impressão ---- */
+  --r-sm: 0;
+  --r: 0;
+  --r-lg: 0;
   --gap: 14px;
 }
 
@@ -94,7 +112,7 @@ body {
 .mono, table, .n, .valor, .metrica { font-variant-numeric: tabular-nums; }
 .mono { font-family: var(--mono); }
 
-a { color: var(--nos); text-underline-offset: 3px; }
+a { color: var(--ambar-txt); text-underline-offset: 3px; }
 :focus-visible { outline: 2px solid var(--nos); outline-offset: 2px; border-radius: 4px; }
 
 /* ============================================================
@@ -170,7 +188,7 @@ header {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: rgba(11, 14, 19, 0.88);
+  background: rgba(242, 242, 239, 0.92);
   backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--line);
   padding: 11px 20px;
@@ -190,37 +208,70 @@ header .estado { font-family: var(--mono); font-size: 11.5px; color: var(--ink3)
 header .direita { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
 /* O LED é o único elemento que pisca — e só quando algo está errado. */
-.led { width: 8px; height: 8px; border-radius: 50%; background: var(--feito); box-shadow: 0 0 10px rgba(37, 208, 123, 0.6); }
-.led.off { background: var(--corte); box-shadow: 0 0 10px rgba(240, 80, 58, 0.6); animation: pulsa 1.6s ease-in-out infinite; }
+.led { width: 8px; height: 8px; border-radius: 50%; background: var(--feito); }
+.led.off { background: var(--corte); animation: pulsa 1.6s ease-in-out infinite; }
 @keyframes pulsa { 50% { opacity: 0.35; } }
 
+/* ------------------------------------------------------------
+   NAVEGAÇÃO EM COLUNA À ESQUERDA
+   Pedido do dono. Ganha o que a barra horizontal não dava: os
+   rótulos cabem por extenso (nada de corte ou rolagem lateral) e
+   a lista pode crescer sem competir com o conteúdo.
+   No CELULAR ela volta a ser faixa horizontal rolável no topo —
+   200px de coluna num telefone comeriam metade da largura útil.
+   ------------------------------------------------------------ */
+.corpo-app { display: flex; align-items: flex-start; }
+
 nav {
-  border-bottom: 1px solid var(--line);
+  flex: none;
+  width: 208px;
+  border-right: 1px solid var(--line);
   background: var(--void);
   position: sticky;
   top: 51px;
-  z-index: 15;
-  /* Borda esfumada à direita: avisa que a lista rola no celular. */
-  -webkit-mask-image: linear-gradient(90deg, #000 92%, transparent);
-  mask-image: linear-gradient(90deg, #000 92%, transparent);
+  height: calc(100vh - 51px);
+  overflow-y: auto;
+  padding: 18px 0;
 }
-nav .interno { max-width: 1200px; margin: 0 auto; padding: 0 20px; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
-nav .interno::-webkit-scrollbar { display: none; }
+nav .interno { display: flex; flex-direction: column; gap: 1px; padding: 0 10px; }
 nav a {
   font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.05em;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--ink3);
   text-decoration: none;
-  padding: 13px 13px;
-  border-bottom: 2px solid transparent;
+  padding: 10px 12px;
+  border-left: 2px solid transparent;
   white-space: nowrap;
 }
-nav a:hover { color: var(--ink2); }
+nav a:hover { color: var(--tinta); background: var(--nos-fraco); }
+nav a.ativa {
+  color: var(--tinta);
+  border-left-color: var(--ambar);
+  background: var(--nos-fraco);
+  font-weight: 600;
+}
+
+.wrap { flex: 1; min-width: 0; max-width: 1200px; margin: 0 auto; padding: 26px 24px 80px; }
+
+@media (max-width: 860px) {
+  .corpo-app { display: block; }
+  nav {
+    width: auto;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 0;
+    top: 51px;
+  }
+  nav .interno { flex-direction: row; overflow-x: auto; scrollbar-width: none; padding: 0 14px; }
+  nav .interno::-webkit-scrollbar { display: none; }
+  nav a { border-left: 0; border-bottom: 2px solid transparent; padding: 12px 12px; }
+  nav a.ativa { border-left: 0; border-bottom-color: var(--ambar); }
+}
 nav a.ativa { color: var(--ink); border-bottom-color: var(--nos); }
 
-.wrap { max-width: 1200px; margin: 0 auto; padding: 22px 20px 72px; }
 .secao { display: none; }
 .secao.ativa { display: block; animation: entra 0.22s ease-out; }
 @keyframes entra { from { opacity: 0; transform: translateY(4px); } }
@@ -250,7 +301,7 @@ nav a.ativa { color: var(--ink); border-bottom-color: var(--nos); }
    A largura de cada faixa é proporcional ao número, então o corte
    é visível antes de você ler o valor.
    ============================================================ */
-.funil { border: 1px solid var(--line); border-radius: var(--r-lg); background: linear-gradient(180deg, var(--panel), #10151c); padding: 18px; overflow: hidden; }
+.funil { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); padding: 18px; overflow: hidden; }
 .funil .trilha { display: flex; align-items: stretch; gap: 4px; height: 68px; }
 .funil .faixa {
   position: relative;
@@ -266,19 +317,19 @@ nav a.ativa { color: var(--ink); border-bottom-color: var(--nos); }
 }
 .funil .faixa .n { font-family: var(--display); font-size: 25px; font-weight: 800; line-height: 1; }
 .funil .faixa .r { font-family: var(--mono); font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink3); }
-.faixa.entrada { background: var(--entrada-fraco); border-color: rgba(59, 158, 255, 0.32); }
+.faixa.entrada { background: var(--entrada-fraco); border-color: var(--entrada); }
 .faixa.entrada .n { color: var(--entrada); }
-.faixa.corte { background: var(--corte-fraco); border-color: rgba(240, 80, 58, 0.3); }
-.faixa.corte .n { color: #ff8a76; }
-.faixa.saida { background: var(--nos-fraco); border-color: rgba(245, 165, 36, 0.42); }
-.faixa.saida .n { color: var(--nos); }
-.faixa.enviado { background: var(--feito-fraco); border-color: rgba(37, 208, 123, 0.34); }
+.faixa.corte { background: var(--corte-fraco); border-color: var(--corte); }
+.faixa.corte .n { color: var(--corte); }
+.faixa.saida { background: var(--nos-fraco); border-color: var(--ambar); }
+.faixa.saida .n { color: var(--ambar-txt); }
+.faixa.enviado { background: var(--feito-fraco); border-color: var(--verde); }
 .faixa.enviado .n { color: var(--feito); }
 .funil .legenda { font-family: var(--mono); font-size: 11.5px; color: var(--ink3); margin-top: 12px; }
 
 .motivos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .motivo { font-family: var(--mono); font-size: 11px; padding: 4px 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--well); color: var(--ink2); }
-.motivo b { color: #ff8a76; font-weight: 600; }
+.motivo b { color: var(--corte); font-weight: 600; }
 
 /* ============================================================
    A TRAVESSIA — elemento-assinatura da inteligência.
@@ -289,7 +340,7 @@ nav a.ativa { color: var(--ink); border-bottom-color: var(--nos); }
    repostagem imediata; diagonais longas, "eles postam no dia
    seguinte". A resposta aparece antes de qualquer número.
    ============================================================ */
-.travessia { border: 1px solid var(--line); border-radius: var(--r-lg); background: linear-gradient(180deg, var(--panel), #10151c); padding: 18px 18px 12px; overflow-x: auto; }
+.travessia { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); padding: 18px 18px 12px; overflow-x: auto; }
 .travessia svg { display: block; width: 100%; min-width: 620px; height: 190px; }
 .travessia .rail-label { font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
 .travessia .hora { font-family: var(--mono); font-size: 9.5px; fill: var(--ink3); }
@@ -418,7 +469,7 @@ nav a.ativa { color: var(--ink); border-bottom-color: var(--nos); }
 .tag.eles { background: var(--eles-fraco); color: var(--eles); }
 .tag.entrada { background: var(--entrada-fraco); color: var(--entrada); }
 .tag.feito { background: var(--feito-fraco); color: var(--feito); }
-.tag.corte { background: var(--corte-fraco); color: #ff8a76; }
+.tag.corte { background: var(--corte-fraco); color: var(--corte); }
 .tag.neutro { background: rgba(255, 255, 255, 0.05); color: var(--ink3); }
 
 .ponto-status { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
@@ -447,7 +498,7 @@ input::placeholder { color: var(--ink3); }
 .btn.fantasma { background: transparent; color: var(--ink2); border: 1px solid var(--line); }
 .btn.fantasma:hover { border-color: var(--line-forte); color: var(--ink); filter: none; }
 .btn.perigo { background: transparent; color: var(--ink2); border: 1px solid var(--line); }
-.btn.perigo:hover { border-color: var(--corte); color: #ff8a76; filter: none; }
+.btn.perigo:hover { border-color: var(--corte); color: var(--corte); filter: none; }
 .btn.pequeno { font-size: 11.5px; padding: 6px 10px; }
 .btn:disabled { opacity: 0.45; cursor: progress; filter: none; }
 
@@ -538,14 +589,14 @@ tr.linha-pulada:hover td { opacity: 1; }
 .vazio .btn { margin: 0 4px; }
 /* Falha de carregamento é um vazio com causa — mostra o erro cru,
    porque "não carregou" sem motivo já custou horas neste projeto. */
-.vazio.erro { box-shadow: inset 0 0 0 1px rgba(240, 80, 58, 0.35); }
-.vazio.erro h3 { color: #ff8a76; }
+.vazio.erro { box-shadow: inset 0 0 0 1px var(--corte); }
+.vazio.erro h3 { color: var(--corte); }
 .vazio.erro code { font-family: var(--mono); font-size: 11.5px; color: var(--ink2); display: block; margin-bottom: 14px; word-break: break-word; }
 
 .nota { font-size: 12.5px; color: var(--ink3); margin-top: 7px; }
 .ok { color: var(--feito); }
-.alerta { color: var(--nos); }
-.err { color: #ff8a76; }
+.alerta { color: var(--ambar-txt); }
+.err { color: var(--corte); }
 
 .qr { text-align: center; margin-top: 14px; }
 .qr img { width: 226px; height: 226px; background: #fff; border-radius: 10px; padding: 8px; }

@@ -26,7 +26,8 @@ import {
   resumoDiario, correlacaoDoDia, repeticaoDeProdutos,
   distribuicaoPorHora, coberturaPorGrupo, perfilDeEscolha,
 } from './intel/report';
-import { redeDeGrupos } from './intel/rede';
+import { redeDeGrupos, nichoDosGrupos } from './intel/rede';
+import { sincronizarCategorias, categoriasGuardadas } from './shopee/categorias';
 
 /**
  * API do backend (roda no VPS). Serve:
@@ -689,6 +690,38 @@ app.get('/api/intel/rede', wrap(async (req: Request, res: Response) => {
 }));
 
 /**
+ * DE QUE CADA GRUPO FALA — o perfil de categoria, medido em vez de rotulado.
+ *
+ * Substitui o `kind` escolhido na mão ("promoção genérica"), que dizia o que o
+ * dono ACHAVA. A categoria vem carimbada pela Shopee em `productCatIds`, então
+ * "generalista" passa a ser uma conclusão do dado, não um palpite.
+ */
+app.get('/api/intel/nicho', wrap(async (req: Request, res: Response) => {
+  // Padrão SÓ SHOPEE: é a única fatia com que o motor compete. `todas=1` liga a
+  // comparação com o resto, que continua disponível — desligada, não removida.
+  const somenteShopee = String(req.query.todas ?? '') !== '1';
+  const [dados, catsNoBanco] = await Promise.all([
+    nichoDosGrupos(Number(req.query.dias), somenteShopee),
+    categoriasGuardadas(),
+  ]);
+  /*
+   * Sem a árvore sincronizada NADA tem categoria, e o painel mostraria todos
+   * os grupos com "amostra pequena" — sintoma que parece falta de dado e é, na
+   * verdade, falta de um passo de configuração. Melhor dizer qual é.
+   */
+  res.json({ ...dados, arvoreSincronizada: catsNoBanco > 0, categoriasConhecidas: catsNoBanco });
+}));
+
+/** Baixa a árvore oficial de categorias da Shopee (público, sem credencial). */
+app.post('/api/shopee/categorias/sync', wrap(async (_req: Request, res: Response) => {
+  try {
+    res.json({ ok: true, ...(await sincronizarCategorias()) });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+}));
+
+/**
  * Passa a OBSERVAR um grupo, direto da lista de grupos do número.
  *
  * Garante o webhook no mesmo passo, de propósito: cadastrar o grupo sem o
@@ -738,6 +771,21 @@ app.post('/api/intel/observar', wrap(async (req: Request, res: Response) => {
     }
   }
   res.json({ ok: true, jid, webhookOk, passos });
+}));
+
+/**
+ * DESLIGA a observação de um grupo (o outro lado do interruptor).
+ *
+ * `is_active = false` em vez de DELETE: os posts já coletados continuam valendo
+ * para o histórico e para a análise de rede. Apagar o grupo levaria junto tudo
+ * que ele ensinou (`ON DELETE CASCADE` em `intel_posts`), e desligar um
+ * interruptor não deve destruir dado.
+ */
+app.delete('/api/intel/observar/:jid', wrap(async (req: Request, res: Response) => {
+  const jid = String(req.params.jid ?? '');
+  const r = await query('UPDATE intel_groups SET is_active = false WHERE group_jid = $1 RETURNING id', [jid]);
+  if (!r.length) return res.status(404).json({ error: 'grupo não estava sendo observado' });
+  res.json({ ok: true, jid, aviso: 'observação desligada — os posts já coletados continuam no histórico' });
 }));
 
 /**

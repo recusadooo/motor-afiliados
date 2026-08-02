@@ -7,6 +7,13 @@ export interface ProductOfferNode {
   productLink: string; // URL do produto (origem p/ generateShortLink)
   offerLink: string; // link de afiliado já pronto (quando presente)
   imageUrl: string;
+  /**
+   * IDs de categoria, níveis 1 a 3 (descrição oficial do explorer:
+   * "Product category ids, l1-l3"). Vem SÓ o id — o nome não existe em lugar
+   * nenhum da API de afiliados; o mapa id→nome sai da árvore pública do site
+   * (`shopee/categorias.ts`).
+   */
+  productCatIds?: Array<number | string> | null;
   priceMin: string | number; // NÃO existe campo único 'price' — só faixa
   priceMax: string | number;
   priceDiscountRate: string | number | null; // % de desconto (anunciado)

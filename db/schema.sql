@@ -416,6 +416,11 @@ ALTER TABLE intel_matches ADD COLUMN IF NOT EXISTS obs_sales          INT;
 ALTER TABLE intel_matches ADD COLUMN IF NOT EXISTS obs_rating_star    NUMERIC(3,2);
 ALTER TABLE intel_matches ADD COLUMN IF NOT EXISTS obs_would_pass     BOOLEAN;
 ALTER TABLE intel_matches ADD COLUMN IF NOT EXISTS obs_reject_reason  TEXT;
+-- A categoria entra na fotografia congelada pelo mesmo motivo que o resto: a
+-- poda de `api_observations` não pode reescrever o perfil de nicho de um grupo
+-- calculado semanas atrás.
+ALTER TABLE intel_matches ADD COLUMN IF NOT EXISTS obs_cat_nome       TEXT;
+ALTER TABLE intel_matches ADD COLUMN IF NOT EXISTS obs_cat_raiz       TEXT;
 
 /*
  * 'outra_plataforma' entrou DEPOIS, a partir de mensagens reais de um grupo
@@ -452,3 +457,33 @@ BEGIN
   END IF;
 END
 $intel$;
+
+-- ============================================================
+-- CATEGORIAS OFICIAIS DA SHOPEE
+-- O `productOfferV2` devolve `productCatIds` (níveis 1-3), mas só os IDs — não
+-- existe query de categoria na API de afiliados. O mapa id→nome vem da árvore
+-- pública do site (31 categorias de nível 1, 253 de nível 2) e fica AQUI para
+-- que a captura não dependa de uma chamada externa a cada ciclo.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS shopee_categories (
+  cat_id        BIGINT PRIMARY KEY,
+  parent_id     BIGINT NOT NULL DEFAULT 0,   -- 0 = raiz
+  nome          TEXT NOT NULL,
+  nivel         SMALLINT NOT NULL,
+  atualizado_em TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_shopee_cat_parent ON shopee_categories (parent_id);
+
+-- Categoria carimbada na OBSERVAÇÃO. Guardamos os ids crus (para poder
+-- reresolver quando a árvore melhorar) E o nome resolvido no momento (para o
+-- relatório não mudar sozinho se a Shopee renomear uma categoria).
+ALTER TABLE api_observations ADD COLUMN IF NOT EXISTS cat_ids     BIGINT[];
+ALTER TABLE api_observations ADD COLUMN IF NOT EXISTS cat_id      BIGINT;
+ALTER TABLE api_observations ADD COLUMN IF NOT EXISTS cat_nome    TEXT;
+ALTER TABLE api_observations ADD COLUMN IF NOT EXISTS cat_raiz    TEXT;
+CREATE INDEX IF NOT EXISTS idx_api_obs_cat ON api_observations (cat_raiz);
+
+-- Mesma coisa na oferta que o motor captura, para o Feed poder filtrar.
+ALTER TABLE offers ADD COLUMN IF NOT EXISTS cat_ids  BIGINT[];
+ALTER TABLE offers ADD COLUMN IF NOT EXISTS cat_nome TEXT;
+ALTER TABLE offers ADD COLUMN IF NOT EXISTS cat_raiz TEXT;

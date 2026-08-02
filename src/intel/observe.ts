@@ -5,6 +5,7 @@ import { productOfferV2 } from '../shopee/queries';
 import { ShopeeApiError, ShopeeContaEmRiscoError, SHOPEE_ERROR_CODES } from '../shopee/client';
 import { normalizeProduct } from '../pipeline/normalize';
 import { normalizeText } from '../util';
+import { resolverCategoriasEmLote } from '../shopee/categorias';
 import type { NormalizedOffer, RejectResult } from '../types';
 import {
   matchesKeyword,
@@ -64,6 +65,17 @@ interface LinhaObservacao {
   offerLink: string | null;
   wouldPass: boolean;
   rejectReason: string | null;
+  /*
+   * Categoria OFICIAL, carimbada pela Shopee em `productCatIds` (l1-l3).
+   * Guardamos os ids crus E o nome resolvido: os ids permitem re-resolver
+   * quando a árvore melhorar (hoje o endpoint público só cobre l1 e l2), e o
+   * nome congelado impede que um relatório sobre o passado mude sozinho se a
+   * Shopee renomear uma categoria.
+   */
+  catIds: number[] | null;
+  catId: number | null;
+  catNome: string | null;
+  catRaiz: string | null;
 }
 
 /**
@@ -165,12 +177,28 @@ const COLUNAS = [
   'offer_link',
   'would_pass',
   'reject_reason',
+  'cat_ids',
+  'cat_id',
+  'cat_nome',
+  'cat_raiz',
 ] as const;
 
-// 17 colunas x 100 linhas = 1.700 parâmetros por INSERT — bem abaixo do teto
+// 21 colunas x 100 linhas = 2.100 parâmetros por INSERT — bem abaixo do teto
 // de 65535 do Postgres. O bloco existe para nunca DEPENDER desse teto, mesmo
 // se INTEL_SWEEP_LIMIT crescer no futuro.
 const LOTE_MAX = 100;
+
+/** Preenche nome/raiz da categoria de cada linha, numa consulta só. */
+async function carimbarCategorias(linhas: LinhaObservacao[]): Promise<void> {
+  const mapa = await resolverCategoriasEmLote(linhas.map((l) => l.catIds));
+  for (const l of linhas) {
+    const r = mapa.get(JSON.stringify(l.catIds ?? []));
+    if (!r) continue;
+    l.catId = r.catId;
+    l.catNome = r.nome;
+    l.catRaiz = r.raizNome;
+  }
+}
 
 /**
  * Grava em blocos de até `LOTE_MAX` linhas (1 INSERT multi-VALUES por bloco,
@@ -208,6 +236,10 @@ async function inserirLote(sweepId: string, linhas: LinhaObservacao[]): Promise<
         linha.offerLink,
         linha.wouldPass,
         linha.rejectReason,
+        linha.catIds,
+        linha.catId,
+        linha.catNome,
+        linha.catRaiz,
       ];
       const marcadores = valores.map((_, i) => `$${params.length + i + 1}`);
       grupos.push(`(${marcadores.join(', ')})`);
@@ -372,8 +404,16 @@ export async function runSweep(trigger = 'cron'): Promise<SweepStats> {
             offerLink: offer.offerLink,
             wouldPass: veredito.wouldPass,
             rejectReason: veredito.reason,
+            catIds: offer.catIds ?? null,
+            catId: null,
+            catNome: null,
+            catRaiz: null,
           };
         });
+
+        // Resolve os nomes em LOTE, uma consulta por keyword em vez de uma por
+        // produto — a varredura larga passa de 900 itens e o custo importa.
+        await carimbarCategorias(linhas);
 
         if (sweepId && linhas.length > 0) {
           stats.observed += await inserirLote(sweepId, linhas);
