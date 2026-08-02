@@ -126,6 +126,77 @@ export class EvolutionClient {
       webhook: { enabled: true, url, byEvents: false, base64: false, events },
     });
   }
+
+  /* ==================== GRUPOS ====================
+   * Endpoints e formatos verificados contra o código-fonte oficial
+   * (evolution-foundation/evolution-api, main = 2.3.7; `group.router.ts`,
+   * `group.dto.ts`, `group.schema.ts`). Diff de 2.2.0 até 2.3.7 é ZERO nesses
+   * três arquivos, então o contrato é estável na faixa que interessa.
+   */
+
+  /**
+   * Cria um grupo. Devolve o JID em `id` (a resposta é o `groupMetadata` cru
+   * do Baileys, não filtrado).
+   *
+   * `participants` é OBRIGATÓRIO com no mínimo 1 item — `createGroupSchema` tem
+   * `minItems: 1`, então lista vazia é recusada com 400 ANTES de chegar no
+   * controller. Não existe "criar grupo só meu" pela API; é preciso semear com
+   * ao menos um número. Formato exigido: strings só de dígitos, mínimo 10
+   * (`pattern: '\\d+'`), sem sufixo `@s.whatsapp.net`.
+   *
+   * Armadilha do lado do servidor: antes de criar, a Evolution filtra os
+   * participantes por existência real no WhatsApp (`whatsappNumber()` →
+   * `filter(p => p.exists)`). Número que não existe é descartado em SILÊNCIO, e
+   * a criação segue com a lista reduzida — possivelmente vazia. Por isso a rota
+   * que chama isto compara quantos participantes voltaram com quantos foram
+   * pedidos e avisa a diferença.
+   */
+  async createGroup(
+    instance: string,
+    subject: string,
+    participants: string[],
+    description?: string,
+  ): Promise<{ id: string; subject?: string; participants?: unknown[] }> {
+    const r = (await this.req('POST', `/group/create/${instance}`, {
+      subject,
+      participants,
+      ...(description ? { description } : {}),
+    })) as { id?: string; subject?: string; participants?: unknown[]; groupJid?: string };
+    const id = r.id ?? r.groupJid;
+    if (!id) throw new Error('Evolution criou o grupo mas não devolveu o id');
+    return { id, subject: r.subject, participants: r.participants };
+  }
+
+  /**
+   * Link de convite. A Evolution já monta a URL completa a partir do código
+   * cru do Baileys, e devolve os dois (`inviteUrl` e `inviteCode`).
+   */
+  async groupInviteCode(
+    instance: string,
+    groupJid: string,
+  ): Promise<{ inviteUrl?: string; inviteCode?: string }> {
+    return (await this.req(
+      'GET',
+      `/group/inviteCode/${instance}?groupJid=${encodeURIComponent(groupJid)}`,
+    )) as { inviteUrl?: string; inviteCode?: string };
+  }
+
+  /**
+   * `announcement` = só ADMIN manda mensagem (o modo certo para um grupo de
+   * ofertas). `locked` é outra coisa: só admin edita nome/foto/descrição — os
+   * dois são independentes e fáceis de confundir.
+   */
+  async updateGroupSetting(
+    instance: string,
+    groupJid: string,
+    action: 'announcement' | 'not_announcement' | 'locked' | 'unlocked',
+  ): Promise<void> {
+    await this.req('POST', `/group/updateSetting/${instance}`, { groupJid, action });
+  }
+
+  async updateGroupDescription(instance: string, groupJid: string, description: string): Promise<void> {
+    await this.req('POST', `/group/updateGroupDescription/${instance}`, { groupJid, description });
+  }
 }
 
 /**

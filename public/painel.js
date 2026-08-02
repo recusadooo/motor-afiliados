@@ -1155,6 +1155,48 @@ function ligar() {
       msg('c-msg', 'webhook configurado: ' + r.url, 'ok');
     } catch (e) { msg('c-msg', e.message, 'err'); }
   });
+  $('btn-criar-grupo').addEventListener('click', async () => {
+    const b = $('btn-criar-grupo');
+    const nome = ($('g-subject').value || '').trim();
+    if (!cNome()) return msg('g-criar-msg', 'preencha o nome da instância lá em cima — é o número que vira dono do grupo', 'err');
+    if (!nome) return msg('g-criar-msg', 'dê um nome ao grupo', 'err');
+    b.disabled = true;
+    const antes = b.textContent;
+    b.textContent = 'criando…';
+    try {
+      const r = await enviar(`/api/instances/${encodeURIComponent(cNome())}/groups`, 'POST', {
+        subject: nome,
+        description: ($('g-desc').value || '').trim(),
+        participants: ($('g-participantes').value || '').trim(),
+        somenteAdmin: $('g-somente-admin').checked,
+        registrar: $('g-registrar').value,
+      });
+      msg('g-criar-msg', 'grupo criado', 'ok');
+      /*
+       * O link de convite é a ÚNICA coisa aqui que o dono precisa levar para
+       * fora do painel, e some se ele fechar a página — por isso fica num poço
+       * com botão de copiar, e não numa mensagem de status que a próxima ação
+       * apaga.
+       */
+      $('g-criado').innerHTML =
+        `<div class="nota" style="margin-top:10px">${(r.passos || []).map((p) => '· ' + esc(p)).join('<br>')}</div>` +
+        (r.inviteUrl
+          ? `<label style="margin-top:10px">link de convite — divulgue este endereço</label>
+             <div class="copiavel"><span class="mono" id="g-convite">${esc(r.inviteUrl)}</span>
+             <button class="btn fantasma pequeno" data-copiar="g-convite">copiar</button></div>`
+          : '<div class="nota alerta" style="margin-top:10px">o grupo foi criado, mas o link de convite não veio — pegue pelo celular, em Dados do grupo → Convidar via link.</div>') +
+        `<div class="nota" style="margin-top:8px">id do grupo: <span class="mono">${esc(r.jid)}</span></div>`;
+      $('g-subject').value = '';
+      $('g-participantes').value = '';
+      $('g-desc').value = '';
+      carregarCanais();
+    } catch (e) {
+      msg('g-criar-msg', e.message, 'err');
+    } finally {
+      b.disabled = false;
+      b.textContent = antes;
+    }
+  });
   $('btn-registrar-canal').addEventListener('click', async () => {
     try {
       if (cFuncao() === 'listener') {

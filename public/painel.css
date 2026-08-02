@@ -465,6 +465,24 @@ input::placeholder { color: var(--ink3); }
 .filtros .grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(152px, 1fr)); gap: 10px; }
 .filtros .acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
 .alternar { display: flex; gap: 8px; flex-wrap: wrap; }
+/*
+ * Rótulo de ESCOLHA (caixinha + frase que a pessoa lê), que é outra coisa que
+ * rótulo de CAMPO. O `label` global é mono, 10px e CAIXA ALTA — desenhado para
+ * nomear o campo logo abaixo dele; aplicado a uma frase, ela vira grito
+ * ilegível. E `input { width: 100% }` esticava a própria caixinha para a
+ * largura do painel, jogando o texto para longe dela. Por isso é classe, não
+ * um `label` qualquer.
+ */
+.escolha {
+  display: flex; align-items: flex-start; gap: 9px; cursor: pointer;
+  font-family: var(--body); font-size: 14px; text-transform: none;
+  letter-spacing: 0; color: var(--ink2); margin: 12px 0 0;
+}
+.escolha input[type="checkbox"] {
+  width: 16px; height: 16px; flex: none; margin: 2px 0 0; accent-color: var(--nos);
+}
+.escolha .nota { display: block; margin: 2px 0 0; }
+
 .linha-campos { display: flex; gap: 10px; flex-wrap: wrap; }
 .linha-campos > * { flex: 1; min-width: 152px; }
 

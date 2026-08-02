@@ -8,6 +8,7 @@ import { handleEvolutionWebhook } from './whatsapp/listener';
 import { breakerState } from './resilience/breaker';
 import { removeDripJob } from './queue/scheduler';
 import { getEvolution, GROUPS_INSTANCE_SETTINGS } from './whatsapp/evolution';
+import { normalizarTelefoneBR } from './util';
 import { settingsStatus, setSetting, SETTING_KEYS } from './settings';
 import { runCaptureExclusivo, capturaEmAndamento } from './capture/shopeeFeed';
 import {
@@ -452,6 +453,128 @@ app.get('/api/instances/:name/groups', wrap(async (req: Request, res: Response) 
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
   }
+}));
+
+/**
+ * Cria um grupo de WhatsApp e o deixa PRONTO PARA USO num passo só: cria,
+ * opcionalmente tranca para "só admin posta", pega o link de convite e já
+ * registra como canal de disparo.
+ *
+ * Cada etapa depois da criação é best-effort e vai reportada em `passos` — se
+ * o grupo nasceu, a operação não pode ser considerada falha só porque o link
+ * de convite não veio. O grupo existiria no WhatsApp e o painel diria "erro",
+ * e o dono acabaria com grupos órfãos criados a cada tentativa.
+ */
+app.post('/api/instances/:name/groups', wrap(async (req: Request, res: Response) => {
+  const evo = await evoOr500(res);
+  if (!evo) return;
+  const instancia = req.params.name!;
+  const subject = String(req.body?.subject ?? '').trim();
+  const description = String(req.body?.description ?? '').trim();
+  const somenteAdmin = req.body?.somenteAdmin !== false; // padrão: grupo de avisos
+  const registrar = String(req.body?.registrar ?? 'poster'); // poster | intel | nao
+
+  if (!subject) return res.status(400).json({ error: 'dê um nome ao grupo' });
+
+  /*
+   * A Evolution exige participants com minItems:1 (verificado no
+   * createGroupSchema oficial) — não existe "criar grupo só meu" pela API.
+   * Normalizamos aqui para o dono poder digitar "(11) 99999-9999"; sem isso a
+   * Evolution devolve 400 de validação com mensagem que não ajuda.
+   */
+  /*
+   * Separadores: vírgula, ponto-e-vírgula e quebra de linha — NÃO espaço.
+   * O espaço faz parte da formatação de um único número no Brasil
+   * ("(11) 99999-9999", "11 99999-9999"); separar por ele quebrava o número
+   * em "(11)" e "99999-9999", os dois inválidos, e o dono levava um "número
+   * inválido" para a forma mais natural de digitar. Achado pelo teste.
+   */
+  const crus: string[] = Array.isArray(req.body?.participants)
+    ? req.body.participants
+    : String(req.body?.participants ?? '').split(/[,;\n]+/);
+  const invalidos: string[] = [];
+  const numeros: string[] = [];
+  for (const c of crus) {
+    const t = String(c ?? '').trim();
+    if (!t) continue;
+    const n = normalizarTelefoneBR(t);
+    if (n) numeros.push(n);
+    else invalidos.push(t);
+  }
+  if (invalidos.length) {
+    return res.status(400).json({
+      error: `número inválido: ${invalidos.join(', ')} — use DDD + número (ex.: 11 99999-9999)`,
+    });
+  }
+  if (!numeros.length) {
+    return res.status(400).json({
+      error: 'a Evolution exige pelo menos 1 participante para criar o grupo (pode ser o seu outro número)',
+    });
+  }
+
+  const passos: string[] = [];
+  let jid = '';
+  let inviteUrl: string | undefined;
+  try {
+    const g = await evo.createGroup(instancia, subject, numeros, description || undefined);
+    jid = g.id;
+    passos.push(`grupo criado: ${subject}`);
+    /*
+     * A Evolution descarta em SILÊNCIO participante que não existe no WhatsApp
+     * (filter(p => p.exists) antes do groupCreate). Sem este aviso, o dono
+     * digita um número errado e fica achando que convidou alguém.
+     */
+    const entraram = Array.isArray(g.participants) ? g.participants.length : null;
+    if (entraram != null && entraram < numeros.length + 1) {
+      passos.push(
+        `atenção: ${numeros.length} número(s) pedido(s), mas nem todos entraram — a Evolution ignora número que não existe no WhatsApp`,
+      );
+    }
+  } catch (err) {
+    return res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+
+  if (somenteAdmin) {
+    try {
+      await evo.updateGroupSetting(instancia, jid, 'announcement');
+      passos.push('travado: só admin manda mensagem');
+    } catch (err) {
+      passos.push(`não consegui travar p/ só admin (${err instanceof Error ? err.message : 'erro'}) — dá para fazer pelo celular`);
+    }
+  }
+
+  try {
+    const c = await evo.groupInviteCode(instancia, jid);
+    inviteUrl = c.inviteUrl ?? (c.inviteCode ? `https://chat.whatsapp.com/${c.inviteCode}` : undefined);
+    if (inviteUrl) passos.push('link de convite gerado');
+  } catch (err) {
+    passos.push(`não consegui pegar o link de convite (${err instanceof Error ? err.message : 'erro'})`);
+  }
+
+  if (registrar === 'poster' || registrar === 'intel') {
+    try {
+      if (registrar === 'poster') {
+        await query(
+          `INSERT INTO channels (platform, role, instance_ref, target_ref, display_name, status)
+           VALUES ('whatsapp','poster',$1,$2,$3,'active')`,
+          [instancia, jid, subject],
+        );
+        passos.push('registrado como canal de disparo — o gotejamento começa no próximo ciclo');
+      } else {
+        await query(
+          `INSERT INTO intel_groups (group_jid, display_name, kind, is_active)
+           VALUES ($1,$2,'proprio',true)
+           ON CONFLICT (group_jid) DO UPDATE SET display_name = EXCLUDED.display_name, is_active = true`,
+          [jid, subject],
+        );
+        passos.push("registrado como grupo observado (tipo 'próprio', fica fora de \"o que eles escolhem\")");
+      }
+    } catch (err) {
+      passos.push(`grupo criado, mas não consegui registrar o canal (${err instanceof Error ? err.message : 'erro'}) — dá para registrar na mão abaixo`);
+    }
+  }
+
+  res.json({ jid, subject, inviteUrl, passos });
 }));
 
 // Configura o webhook do listener para apontar para este app.

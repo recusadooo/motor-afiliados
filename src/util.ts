@@ -47,3 +47,31 @@ export function timeToMinutes(t: string): number {
   const m = Number(parts[1] ?? 0);
   return h * 60 + m;
 }
+
+/**
+ * Normaliza um telefone brasileiro para o formato que a Evolution exige ao
+ * criar grupo: SÓ DÍGITOS, com código do país, mínimo 10 caracteres
+ * (`createGroupSchema` valida `pattern: '\d+'` e `minLength: 10`).
+ *
+ * Sem isto, o dono digita "(11) 99999-9999" — a forma natural — e a Evolution
+ * devolve 400 de validação, com uma mensagem que não diz o que fazer.
+ *
+ * A regra do comprimento resolve uma ambiguidade real: DDD 55 EXISTE (Santa
+ * Maria/RS), então "5599999999" tanto pode ser "55 + 99999999" quanto o país 55
+ * já na frente. O desempate é pelo tamanho, que é determinístico no Brasil:
+ *   10 = DDD + 8 dígitos        11 = DDD + 9 dígitos
+ *   12 = 55 + DDD + 8 dígitos   13 = 55 + DDD + 9 dígitos
+ * Fora dessas faixas devolve null: é melhor recusar do que mandar um número
+ * torto para a API e receber um 400 obscuro — ou pior, criar o grupo com a
+ * pessoa errada dentro.
+ */
+export function normalizarTelefoneBR(entrada: string): string | null {
+  const d = String(entrada ?? '').replace(/\D/g, '');
+  if (!d) return null;
+  if (d.length === 10 || d.length === 11) return `55${d}`;
+  if ((d.length === 12 || d.length === 13) && d.startsWith('55')) return d;
+  // Número internacional já com país (ex.: +1 555 123 4567 = 11 dígitos) cai na
+  // faixa 10-11 e ganharia um "55" indevido. Não há como distinguir sem pedir o
+  // país ao usuário; a UI é explícita que o campo é para número brasileiro.
+  return null;
+}

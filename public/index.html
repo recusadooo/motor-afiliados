@@ -247,6 +247,42 @@
       <div id="qr" class="qr"></div>
       <div id="c-msg" class="nota"></div>
 
+      <!--
+        Criar grupo. Fica DENTRO do painel de conexão, depois do QR, porque só
+        faz sentido com um número já conectado — é ele que vira o dono do grupo.
+      -->
+      <details class="painel dobravel" id="criar-grupo-caixa" style="margin-top:22px">
+        <summary><h3 class="t-titulo">Criar um grupo novo</h3></summary>
+        <p class="nota" style="margin-top:0">O número conectado acima vira o <b>dono</b> do grupo.
+          A Evolution exige <b>pelo menos um participante</b> para criar — pode ser o seu outro
+          número. Depois você divulga pelo link de convite.</p>
+        <div class="linha-campos">
+          <div><label for="g-subject">Nome do grupo</label>
+            <input id="g-subject" placeholder="ex.: Ofertas do Dia — Tech e Casa" /></div>
+          <div><label for="g-participantes">Participante(s) para semear</label>
+            <input id="g-participantes" placeholder="11 99999-9999 (separe por vírgula)" /></div>
+        </div>
+        <label for="g-desc" style="margin-top:10px">Descrição (opcional)</label>
+        <input id="g-desc" placeholder="ex.: Ofertas selecionadas todo dia. Só o admin posta." />
+        <label class="escolha">
+          <input type="checkbox" id="g-somente-admin" checked />
+          <span>Só eu posso mandar mensagem
+            <span class="nota">Recomendado: o grupo vira um mural de ofertas, sem conversa no meio.
+              Dá para destravar depois pelo celular.</span></span>
+        </label>
+        <label for="g-registrar" style="margin-top:10px">Depois de criar, registrar como</label>
+        <select id="g-registrar">
+          <option value="poster">canal de disparo — o motor começa a postar nele</option>
+          <option value="intel">grupo observado (próprio) — só acompanhar</option>
+          <option value="nao">não registrar agora</option>
+        </select>
+        <div class="acoes" style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn" id="btn-criar-grupo">Criar grupo</button>
+        </div>
+        <div id="g-criar-msg" class="nota"></div>
+        <div id="g-criado"></div>
+      </details>
+
       <div id="extra-poster">
         <h3 class="t-titulo" style="margin-top:22px">Em quais grupos esse número dispara?</h3>
         <button class="btn fantasma pequeno" id="btn-listar-grupos">Listar grupos</button>
