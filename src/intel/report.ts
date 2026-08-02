@@ -127,6 +127,15 @@ export interface ResumoDia {
   atrasoP75Seg: number | null;
   postadosNoDiaSeguinte: number; // casados cujo post caiu em dia posterior ao first_seen
   wouldPassCasados: number; // dos casados, quantos NOSSO filtro teria aprovado
+  /**
+   * Casamentos cujo atraso é CENSURADO À ESQUERDA: a nossa primeira observação
+   * do produto coincide com o começo do nosso próprio histórico, então o
+   * "atraso" mede quando NÓS começamos a olhar, não quando eles decidiram
+   * postar. Estes ficam FORA da mediana — e este número existe para o painel
+   * poder dizer quantos foram, em vez de a mediana mentir em silêncio.
+   * Na primeira semana de operação isso tende a ser quase tudo.
+   */
+  casadosCensurados: number;
 }
 
 interface ResumoDiaRow {
@@ -141,6 +150,7 @@ interface ResumoDiaRow {
   atraso_p25: string | null;
   atraso_p75: string | null;
   postados_dia_seguinte: string;
+  casados_censurados: string;
   would_pass_casados: string;
   observadas_janela: string; // denominador de taxaAproveitamento (janela terminando no dia)
 }
@@ -251,6 +261,28 @@ export async function resumoDiario(dias?: number): Promise<ResumoDia[]> {
      ),
      -- Agrupado pelo dia do POST (não da observação/match) — é o eixo que
      -- o dono pensa quando pergunta "o que eles postaram aquele dia".
+     /*
+      * CENSURA A ESQUERDA -- o defeito de dado mais insidioso deste modulo.
+      * (sem crase neste comentario: ele vive dentro de um template literal de
+      * JS, e uma crase aqui FECHA a string. Ja quebrou este arquivo duas vezes.)
+      *
+      * first_seen_at e a nossa PRIMEIRA observacao do produto. Se a varredura
+      * comecou ontem, todo produto que ja existia na Shopee ha meses tem
+      * first_seen_at = ontem, e o "atraso" medido nao e o comportamento deles:
+      * e a distancia ate a hora em que NOS comecamos a olhar.
+      *
+      * Nao da para consertar com codigo -- checado: periodStartTime da API e a
+      * janela do PROGRAMA de afiliados, identica para todo produto, nao a da
+      * oferta. O que da para fazer, e e o que faltava, e PARAR DE ESCONDER:
+      * marcar esses casamentos e tira-los da mediana, em vez de deixa-los
+      * empurrar o numero em silencio.
+      *
+      * Criterio: a primeira observacao do produto caiu no comeco do nosso
+      * proprio historico. Ai nao temos como saber se ele existia antes.
+      */
+     inicio_do_historico AS (
+       SELECT min(observed_at) + interval '3 hours' AS limite FROM api_observations
+     ),
      matches_por_dia AS (
        SELECT (ip.posted_at AT TIME ZONE '${TZ}')::date AS dia,
               count(*) FILTER (WHERE m.verdict = 'casado')        AS casados,
@@ -260,12 +292,21 @@ export async function resumoDiario(dias?: number): Promise<ResumoDia[]> {
                 FILTER (WHERE m.verdict = 'casado')                AS casados_produtos,
               count(*) FILTER (WHERE m.verdict = 'ambiguo')       AS ambiguos,
               count(*) FILTER (WHERE m.verdict = 'sem_casamento') AS sem_casamento,
+              -- Os percentis EXCLUEM os censurados: incluí-los faz a mediana
+              -- medir a nossa data de início, não a cadência deles.
               (percentile_cont(0.5) WITHIN GROUP (ORDER BY m.lag_seconds)
-                FILTER (WHERE m.verdict = 'casado' AND m.lag_seconds IS NOT NULL))::text AS atraso_mediano,
+                FILTER (WHERE m.verdict = 'casado' AND m.lag_seconds IS NOT NULL
+                        AND m.first_seen_at > (SELECT limite FROM inicio_do_historico)))::text AS atraso_mediano,
               (percentile_cont(0.25) WITHIN GROUP (ORDER BY m.lag_seconds)
-                FILTER (WHERE m.verdict = 'casado' AND m.lag_seconds IS NOT NULL))::text AS atraso_p25,
+                FILTER (WHERE m.verdict = 'casado' AND m.lag_seconds IS NOT NULL
+                        AND m.first_seen_at > (SELECT limite FROM inicio_do_historico)))::text AS atraso_p25,
               (percentile_cont(0.75) WITHIN GROUP (ORDER BY m.lag_seconds)
-                FILTER (WHERE m.verdict = 'casado' AND m.lag_seconds IS NOT NULL))::text AS atraso_p75,
+                FILTER (WHERE m.verdict = 'casado' AND m.lag_seconds IS NOT NULL
+                        AND m.first_seen_at > (SELECT limite FROM inicio_do_historico)))::text AS atraso_p75,
+              count(*) FILTER (
+                WHERE m.verdict = 'casado' AND m.lag_seconds IS NOT NULL
+                  AND m.first_seen_at <= (SELECT limite FROM inicio_do_historico)
+              ) AS casados_censurados,
               count(*) FILTER (
                 WHERE m.verdict = 'casado'
                   AND m.first_seen_at IS NOT NULL
@@ -305,6 +346,7 @@ export async function resumoDiario(dias?: number): Promise<ResumoDia[]> {
             mt.atraso_p25,
             mt.atraso_p75,
             coalesce(mt.postados_dia_seguinte, 0)  AS postados_dia_seguinte,
+            coalesce(mt.casados_censurados, 0)     AS casados_censurados,
             coalesce(mt.would_pass_casados, 0)     AS would_pass_casados,
             coalesce(oj.observadas_janela, 0)      AS observadas_janela
        FROM dias_serie d
@@ -333,6 +375,7 @@ export async function resumoDiario(dias?: number): Promise<ResumoDia[]> {
       atrasoP25Seg: toNum(row.atraso_p25),
       atrasoP75Seg: toNum(row.atraso_p75),
       postadosNoDiaSeguinte: toNumOrZero(row.postados_dia_seguinte),
+      casadosCensurados: toNumOrZero(row.casados_censurados),
       wouldPassCasados: toNumOrZero(row.would_pass_casados),
     };
   });

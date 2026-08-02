@@ -494,8 +494,17 @@ async function carregarIntelPlacar(dias, dia) {
     ['eles postaram', inteiro(doDia.posts ?? 0), 'eles', 'mensagens capturadas'],
     ['casadas', inteiro(doDia.casados ?? 0), 'feito',
       doDia.taxaAproveitamento != null ? doDia.taxaAproveitamento.toFixed(1) + '% do cardápio' : 'sem base'],
-    ['atraso mediano', duracao(doDia.atrasoMedianoSeg), 'nos',
-      doDia.atrasoP25Seg != null ? `${duracao(doDia.atrasoP25Seg)} – ${duracao(doDia.atrasoP75Seg)}` : 'sem casamento'],
+    /* O rótulo muda quando há casamento censurado. Sem isso, na primeira semana
+       o painel estamparia uma mediana que mede a NOSSA data de início, não a
+       cadência deles — e o dono calibraria a cadência do motor em cima disso. */
+    ['atraso mediano', duracao(doDia.atrasoMedianoSeg), '',
+      doDia.atrasoMedianoSeg == null && doDia.casadosCensurados
+        ? `${doDia.casadosCensurados} casamento${doDia.casadosCensurados > 1 ? 's' : ''} sem base ainda`
+        : doDia.casadosCensurados
+          ? `${duracao(doDia.atrasoP25Seg)} – ${duracao(doDia.atrasoP75Seg)} · ${doDia.casadosCensurados} fora (histórico curto)`
+          : doDia.atrasoP25Seg != null
+            ? `${duracao(doDia.atrasoP25Seg)} – ${duracao(doDia.atrasoP75Seg)}`
+            : 'sem casamento'],
     ['no dia seguinte', inteiro(doDia.postadosNoDiaSeguinte ?? 0), '', 'esperaram virar o dia'],
     ['nosso filtro aprovaria', inteiro(doDia.wouldPassCasados ?? 0), 'nos', 'das que eles postaram'],
   ];
