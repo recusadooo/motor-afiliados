@@ -164,8 +164,14 @@
       Só leitura: nada é republicado. Marque o tipo de cada um — sem essa marcação não dá para
       separar depois o critério de grupo generalista do critério de grupo de nicho.</p>
 
-    <div class="painel">
-      <h3 class="t-titulo">Adicionar um grupo</h3>
+    <!--
+      O formulário abre sozinho quando não há nenhum grupo (é a primeira coisa a
+      fazer) e fica recolhido depois — a partir daí esta tela serve para CONFERIR
+      os grupos, e o formulário estava consumindo a primeira dobra inteira antes
+      do primeiro card aparecer. `painel.js` controla o `open` conforme a lista.
+    -->
+    <details class="painel dobravel" id="add-grupo-caixa" open>
+      <summary><h3 class="t-titulo">Adicionar um grupo</h3></summary>
       <p class="nota" style="margin-top:0">Cole o id do grupo, ou use a aba Conexões para listar
         os grupos de um número já conectado.</p>
       <div class="linha-campos">
@@ -182,7 +188,7 @@
         <button class="btn" id="btn-add-grupo">Adicionar grupo</button>
       </div>
       <div class="nota" id="g-msg"></div>
-    </div>
+    </details>
 
     <h2 class="secao-titulo">grupos cadastrados</h2>
     <div class="poco" id="lista-grupos"></div>
@@ -209,7 +215,7 @@
 }</pre>
       </details>
       <div class="acoes" style="display:flex;gap:8px;margin-top:12px">
-        <button class="btn fantasma pequeno" id="btn-copiar-url">copiar endereço</button>
+        <button class="btn fantasma pequeno" data-copiar="ingest-url">copiar endereço</button>
         <button class="btn perigo pequeno" id="btn-girar-token">gerar novo segredo</button>
       </div>
     </div>

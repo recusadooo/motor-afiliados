@@ -320,13 +320,34 @@ async function carregarCiclos() {
     const motivo = pulado
       ? `<span class="tag neutro">pulado</span> ${esc(Object.keys(s.cut || {})[0] || 'sem motivo registrado')}`
       : esc(topo);
+    /*
+     * A relação buscadas -> cortadas -> aprovadas É a história de um ciclo, e
+     * estava renderizada como três números soltos em colunas separadas: dava
+     * para LER, não para VER. Comparar dez ciclos exigia aritmética mental linha
+     * a linha. O painel já tem uma linguagem para isso — o funil da Visão Geral,
+     * onde largura = quantidade. Aqui ela aparece em miniatura: uma barra por
+     * linha, na mesma escala e nas mesmas cores (corte vermelho, aprovada
+     * âmbar), o que deixa um ciclo anômalo saltar sem ninguém precisar ler.
+     */
+    const buscadas = Number(s.fetched ?? 0);
+    const aprovadas = Number(s.selected ?? 0);
+    const pCorte = buscadas > 0 ? (cortadas / buscadas) * 100 : 0;
+    const pOk = buscadas > 0 ? (aprovadas / buscadas) * 100 : 0;
+    const barra = pulado || buscadas === 0
+      ? '<span class="mini-funil vazio"></span>'
+      : `<span class="mini-funil" title="${cortadas} cortadas · ${aprovadas} aprovadas de ${buscadas}">
+           <i class="corte" style="width:${pCorte.toFixed(1)}%"></i><i class="ok" style="width:${pOk.toFixed(1)}%"></i>
+         </span>`;
+    const resultado = pulado
+      ? '—'
+      : `${barra}<span class="mini-funil-num"><b class="alerta">${aprovadas}</b> de ${buscadas}</span>`;
+
     return `<tr${pulado ? ' class="linha-pulada"' : ''}><td>${esc(dataHora(r.started_at))}</td><td>${esc(r.trigger)}</td><td>${pulado ? '—' : (s.keywords ?? '—')}</td>
-      <td>${pulado ? '—' : (s.fetched ?? 0)}</td><td class="${pulado ? '' : 'err'}">${pulado ? '—' : cortadas}</td>
-      <td class="${pulado ? '' : 'alerta'}">${pulado ? '—' : (s.selected ?? 0)}</td><td>${dur}${venc}</td><td>${motivo}</td></tr>`;
+      <td class="col-resultado">${resultado}</td><td>${dur}${venc}</td><td>${motivo}</td></tr>`;
   }).join('');
   $('ciclos').innerHTML = `<div class="rolagem"><table>
-    <thead><tr><th>quando</th><th>gatilho</th><th>keywords</th><th>buscadas</th><th>cortadas</th>
-    <th>aprovadas</th><th>duração</th><th>principais cortes</th></tr></thead><tbody>${linhas}</tbody></table></div>`;
+    <thead><tr><th>quando</th><th>gatilho</th><th>keywords</th><th>aprovadas de buscadas</th>
+    <th>duração</th><th>principais cortes</th></tr></thead><tbody>${linhas}</tbody></table></div>`;
 
   const amostras = (runs.map((r) => r.stats).find((s) => s && s.samples && s.samples.length) || {}).samples || [];
   $('amostras').innerHTML = amostras.length
@@ -702,12 +723,16 @@ const kindClasse = (k) => (k === 'proprio' ? 'nos' : 'eles');
 async function carregarGrupos() {
   const [grupos] = await Promise.all([api('/api/intel/groups'), guardar(carregarCobertura, 'cobertura')]);
   const alvo = $('lista-grupos');
+  // Sem grupo nenhum, cadastrar é a única coisa a fazer — o formulário fica
+  // aberto. Com grupos, a tela passa a servir para conferir, e ele recolhe.
+  const caixa = $('add-grupo-caixa');
+  if (caixa) caixa.open = !grupos.length;
   if (!grupos.length) {
     alvo.innerHTML = vazio('Nenhum grupo observado',
       'Entre num grupo de promoção com o número de escuta, cole o id aqui, e o motor começa a comparar o que eles postam com o que a API ofereceu no mesmo momento.');
     return;
   }
-  alvo.innerHTML = grupos.map((g) => `<article class="linha-item sem-foto">
+  alvo.innerHTML = grupos.map((g) => `<article class="linha-item sem-foto compacta">
     <div class="corpo">
       <div class="t-titulo">${esc(g.display_name || g.group_jid)}
         <span class="tag ${kindClasse(g.kind)}">${esc(KIND_ROTULO[g.kind] || g.kind)}</span>
@@ -797,8 +822,15 @@ async function carregarConfig() {
   const [a, s] = await Promise.all([api('/api/access'), api('/api/settings')]);
   $('acesso-status').innerHTML = 'usuário atual: <b>' + esc(a.usuario) + '</b>';
   $('ac-user').value = a.usuario || '';
+  /*
+   * A URL do webhook é longa, tem segredo dentro e existe para ser COLADA na
+   * Evolution. Deixá-la como texto puro obriga a selecionar ~60 caracteres com o
+   * mouse sem errar a borda — a única ação da caixa não tinha botão.
+   */
   $('ac-webhook').innerHTML = a.webhookUrl
-    ? 'webhook do listener (já inclui o token secreto):<br><span class="mono" style="font-size:11px;word-break:break-all">' + esc(a.webhookUrl) + '</span>'
+    ? 'webhook do listener (já inclui o token secreto):' +
+      '<div class="copiavel"><span class="mono" id="ac-webhook-url">' + esc(a.webhookUrl) + '</span>' +
+      '<button class="btn fantasma pequeno" data-copiar="ac-webhook-url">copiar</button></div>'
     : 'defina PUBLIC_APP_URL para o app poder registrar o webhook.';
   $('cfg-status').innerHTML = (s.openai_api_key_set
     ? '<span class="ok">chave da OpenAI definida</span>'
@@ -854,6 +886,28 @@ async function buscarAgora() {
 /* Delegação de eventos: o conteúdo é reescrito o tempo todo, então
    ouvir no documento evita religar handler a cada render. */
 document.addEventListener('click', async (ev) => {
+  /*
+   * Copiar-para-área-de-transferência, delegado. Antes era um botão com id
+   * fixo para um único endereço; virou padrão porque a tela tem MAIS de um
+   * valor longo-com-segredo cuja única ação é colar noutro lugar. O aviso vai
+   * no PRÓPRIO botão: a caixa de mensagem original ficava numa seção diferente
+   * daquela em que o segundo botão vive.
+   */
+  const btnCopiar = ev.target.closest('[data-copiar]');
+  if (btnCopiar) {
+    const alvoTxt = $(btnCopiar.dataset.copiar);
+    const rotulo = btnCopiar.textContent;
+    try {
+      await navigator.clipboard.writeText(alvoTxt ? alvoTxt.textContent : '');
+      btnCopiar.textContent = 'copiado';
+    } catch {
+      // clipboard exige contexto seguro (https) — em http a promessa rejeita.
+      btnCopiar.textContent = 'selecione e copie';
+    }
+    setTimeout(() => { btnCopiar.textContent = rotulo; }, 1800);
+    return;
+  }
+
   const alvo = ev.target.closest('[data-acao],[data-ir],[data-oferta],[data-canal],[data-grupo],[data-post]');
   if (!alvo) return;
 
@@ -997,11 +1051,6 @@ function ligar() {
       $('g-jid').value = ''; $('g-nome').value = '';
       carregarGrupos();
     } catch (e) { msg('g-msg', e.message, 'err'); }
-  });
-  $('btn-copiar-url').addEventListener('click', async () => {
-    const t = $('ingest-url').textContent;
-    try { await navigator.clipboard.writeText(t); msg('g-msg', 'endereço copiado', 'ok'); }
-    catch { msg('g-msg', 'não deu para copiar — selecione o texto acima', 'alerta'); }
   });
   $('btn-girar-token').addEventListener('click', async () => {
     if (!confirm('Gerar um segredo novo? O fluxo do n8n para de funcionar até você atualizar o endereço lá.')) return;
