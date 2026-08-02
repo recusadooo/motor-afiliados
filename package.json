@@ -17,7 +17,7 @@
     "shopee:check": "tsx src/commands/shopeeCheck.ts",
     "dryrun": "tsx src/commands/dryRun.ts",
     "migrate": "tsx src/migrate.ts",
-    "test": "node --import tsx --test src/logic.test.ts src/intel/intel.test.ts src/intel/reais.test.ts",
+    "test": "node --import tsx --test src/logic.test.ts src/intel/intel.test.ts src/intel/reais.test.ts src/resilience/protecao.test.ts",
     "intel:check": "tsx src/commands/intelCheck.ts"
   },
   "dependencies": {
