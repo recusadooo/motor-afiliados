@@ -21,13 +21,15 @@
     "intel:check": "tsx src/commands/intelCheck.ts",
     "test:entrada": "node --import tsx --test src/intel/entrada.test.ts",
     "test:grupo": "node --import tsx --test src/whatsapp/grupo.test.ts",
-    "test:fila": "node --import tsx --test src/queue/fila.test.ts"
+    "test:fila": "node --import tsx --test src/queue/fila.test.ts",
+    "test:rede": "node --import tsx --test src/intel/rede.test.ts"
   },
   "dependencies": {
     "bullmq": "^5.34.0",
     "express": "^4.21.2",
     "ioredis": "^5.4.2",
     "pg": "^8.13.1",
+    "ssh2": "^1.17.0",
     "ws": "^8.18.0",
     "zod": "^3.24.1"
   },
@@ -38,5 +40,18 @@
     "@types/ws": "^8.5.13",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
-  }
+  },
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/recusadooo/motor-afiliados.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/recusadooo/motor-afiliados/issues"
+  },
+  "homepage": "https://github.com/recusadooo/motor-afiliados#readme"
 }

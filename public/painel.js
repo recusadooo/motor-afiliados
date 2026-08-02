@@ -127,7 +127,7 @@ function carregarSecao(s) {
   if (s === 'visao') { guardar(carregarFunil, 'funil'); guardar(carregarPlacar, 'placar'); }
   if (s === 'feed') { guardar(carregarFacetas, 'f-resumo'); guardar(carregarOfertas, 'ofertas'); }
   if (s === 'ciclos') guardar(carregarCiclos, 'ciclos');
-  if (s === 'inteligencia') guardar(carregarInteligencia, 'travessia');
+  if (s === 'inteligencia') { guardar(carregarInteligencia, 'travessia'); guardar(carregarRede, 'rede'); }
   if (s === 'grupos') { guardar(carregarGrupos, 'lista-grupos'); guardar(carregarIngestUrl, 'ingest-url'); }
   if (s === 'filas') guardar(carregarFilas, 'filas');
   if (s === 'conexoes') { guardar(carregarCanais, 'lista-canais'); guardar(carregarNumeros, 'numeros'); }
@@ -922,9 +922,28 @@ async function carregarNumeros() {
             etq = '<span class="tag entrada">escuta</span>';
           }
           if (g.observado) etq += ' <span class="tag eles">observado (' + esc(g.observado.kind) + ')</span>';
-          const acao = g.canalId
+          /*
+           * DUAS ações independentes: disparar e observar. Um grupo pode ser as
+           * duas coisas — o seu próprio, em que você posta E quer medir — então
+           * não são alternativas, são botões separados.
+           */
+          const bDisparo = g.canalId
             ? '<button class="btn fantasma pequeno" data-fila-de="' + esc(g.canalId) + '">ver fila</button>'
             : '<button class="btn fantasma pequeno" data-ligar="' + esc(g.jid) + '" data-inst="' + esc(n.instancia) + '" data-nome="' + esc(g.nome) + '">fazer disparar</button>';
+          /*
+           * O TIPO é deduzido, não perguntado: se o grupo já é canal de disparo,
+           * ele é SEU — e `proprio` é justamente o tipo que os relatórios
+           * excluem de "o que ELES escolhem". Perguntar num prompt seria pedir
+           * ao dono uma informação que o app já tem, e um clique distraído em
+           * "promo" contaminaria a análise em silêncio. Dá para trocar depois em
+           * Grupos observados.
+           */
+          const tipo = g.canalId ? 'proprio' : 'promo';
+          const bObs = g.observado
+            ? '<button class="btn fantasma pequeno" data-ir="grupos">ver observação</button>'
+            : '<button class="btn fantasma pequeno" data-observar="' + esc(g.jid) + '" data-inst="' +
+              esc(n.instancia) + '" data-nome="' + esc(g.nome) + '" data-tipo="' + tipo + '">observar</button>';
+          const acao = bDisparo + bObs;
           return '<div class="linha-grupo"><div><b>' + esc(g.nome) + '</b> ' + etq +
             '<div class="nota mono">' + esc(g.jid) + '</div></div>' +
             '<div class="acoes compacta">' + acao + '</div></div>';
@@ -1072,6 +1091,83 @@ async function salvarCadencia(id) {
   }
 }
 
+/* ==================== DE ONDE VEM A OFERTA DELES ==================== */
+
+const VEREDITO_REDE = {
+  fonte_via_api: { rot: 'usa a API', cor: 'entrada', exp: 'posta cedo depois de a oferta existir no cardápio, e chega antes dos outros' },
+  fonte_propria: { rot: 'fonte própria', cor: 'eles', exp: 'chega antes dos outros, mas o cardápio não explica — tem outra fonte ou escolhe antes' },
+  eco: { rot: 'ecoa outro grupo', cor: 'neutro', exp: 'a maioria do que posta já tinha saído em outro grupo que você observa' },
+  misto: { rot: 'misto', cor: 'neutro', exp: 'parte própria, parte eco — sem padrão dominante' },
+  rede_pequena: { rot: 'faltam grupos', cor: 'neutro', exp: 'com um grupo só não dá para saber quem copia quem' },
+  sem_dados: { rot: 'sem posts', cor: 'neutro', exp: 'nada coletado nesta janela' },
+};
+
+async function carregarRede() {
+  const dias = $('i-dias') ? $('i-dias').value : 14;
+  const r = await api('/api/intel/rede?dias=' + encodeURIComponent(dias));
+  const alvo = $('rede');
+
+  if (!r.gruposObservados) {
+    alvo.innerHTML = vazio('Nenhum grupo sendo observado',
+      'Marque grupos para observar em Conexões — o botão "observar" fica ao lado de cada grupo do seu número.',
+      '<button class="btn" data-ir="conexoes">Ir para Conexões</button>');
+    return;
+  }
+
+  /*
+   * O AVISO vem antes dos números, não depois. Com um grupo só, "100% primeiro
+   * na rede" é verdade trivial e leria como "esse grupo é a fonte" — conclusão
+   * confiante e sem base. Melhor dizer que a pergunta ainda não tem resposta.
+   */
+  const aviso = !r.comparavel
+    ? '<div class="nota alerta" style="margin-bottom:14px">Você observa ' + r.gruposObservados +
+      ' grupo. "Quem copia quem" só existe comparando grupos — marque pelo menos mais um para esta análise valer.</div>'
+    : '<div class="nota" style="margin-bottom:14px">Lido sobre ' + r.gruposObservados +
+      ' grupos observados, nos últimos ' + r.dias + ' dias. <b>"Primeiro" significa primeiro entre os grupos que VOCÊ observa</b> — ' +
+      'um grupo pode parecer fonte só porque a fonte real não está na sua lista.</div>';
+
+  const cartoes = r.grupos.map((g) => {
+    const v = VEREDITO_REDE[g.veredito] || VEREDITO_REDE.misto;
+    const pct = (n) => (g.posts ? Math.round((n / g.posts) * 100) : 0);
+    const barra = g.posts
+      ? '<div class="barra-origem">' +
+        '<i class="own" style="width:' + pct(g.primeiroNaRede) + '%" title="' + g.primeiroNaRede + ' primeiro na rede"></i>' +
+        '<i class="eco" style="width:' + pct(g.ecoDeOutro) + '%" title="' + g.ecoDeOutro + ' ecoando outro grupo"></i>' +
+        '</div>' +
+        '<div class="nota">' + pct(g.primeiroNaRede) + '% chegou primeiro · ' + pct(g.ecoDeOutro) + '% veio depois de outro grupo</div>'
+      : '';
+
+    const linhaApi = g.casadosComApi
+      ? '<div class="nota">' + g.casadosComApi + ' de ' + g.posts + ' casaram com o cardápio da API' +
+        (g.atrasoApiMediano != null ? ' · atraso mediano ' + seg(g.atrasoApiMediano) : '') + '</div>'
+      : '<div class="nota">nenhum post casou com o cardápio da API nesta janela</div>';
+
+    const linhaEco = g.ecoPrincipal
+      ? '<div class="nota corte-txt">ecoa principalmente <b>' + esc(g.ecoPrincipal.nome) + '</b> (' +
+        g.ecoPrincipal.vezes + '×' + (g.atrasoEcoMediano != null ? ', ~' + seg(g.atrasoEcoMediano) + ' depois' : '') + ')</div>'
+      : '';
+
+    return '<div class="painel cartao-origem">' +
+      '<div class="cabeca-painel"><h3 class="t-titulo">' + esc(g.nome) + '</h3>' +
+      '<span class="tag ' + v.cor + '">' + v.rot + '</span></div>' +
+      '<div class="nota" style="margin-top:0">' + v.exp + '</div>' +
+      '<div class="nota mono">' + g.posts + ' post(s) na janela · tipo ' + esc(g.kind) + '</div>' +
+      barra + linhaApi + linhaEco + '</div>';
+  }).join('');
+
+  const rede = r.arestas.length
+    ? '<h2 class="secao-titulo">quem chega depois de quem</h2><div class="poco">' +
+      r.arestas.map((a) =>
+        '<div class="linha-aresta"><b>' + esc(a.deNome) + '</b>' +
+        '<span class="seta">↤</span>' +
+        '<b>' + esc(a.paraNome) + '</b>' +
+        '<span class="nota">' + a.vezes + '× · ~' + seg(a.atrasoMediano) + ' depois</span></div>').join('') +
+      '</div>'
+    : '';
+
+  alvo.innerHTML = aviso + '<div class="grade-origem">' + cartoes + '</div>' + rede;
+}
+
 /* ==================== FALHAS ==================== */
 
 /*
@@ -1149,7 +1245,7 @@ document.addEventListener('click', async (ev) => {
   const btnCad = ev.target.closest('[data-salvar-cad]');
   if (btnCad) return salvarCadencia(btnCad.dataset.salvarCad);
 
-  const alvo = ev.target.closest('[data-acao],[data-ir],[data-oferta],[data-canal],[data-grupo],[data-post],[data-fila-de],[data-ligar]');
+  const alvo = ev.target.closest('[data-acao],[data-ir],[data-oferta],[data-canal],[data-grupo],[data-post],[data-fila-de],[data-ligar],[data-observar]');
   if (!alvo) return;
 
   if (alvo.dataset.ir) return abrir(alvo.dataset.ir, true);
@@ -1159,6 +1255,25 @@ document.addEventListener('click', async (ev) => {
    * exigiria estado de seleção que ninguém pediu, e a tela já é dobrável.
    */
   if (alvo.dataset.filaDe) return abrir('filas', true);
+
+  /*
+   * "observar": marca o grupo para análise E garante o webhook no mesmo passo.
+   * Os dois juntos de propósito — cadastrar sem o webhook é um nada silencioso:
+   * o painel mostraria o grupo como observado e nenhuma mensagem chegaria nunca.
+   */
+  if (alvo.dataset.observar) {
+    try {
+      const r = await enviar('/api/intel/observar', 'POST', {
+        jid: alvo.dataset.observar,
+        nome: alvo.dataset.nome,
+        instancia: alvo.dataset.inst,
+        kind: alvo.dataset.tipo || 'promo',
+      });
+      alert((r.passos || []).join('\n'));
+      await carregarNumeros();
+    } catch (e) { alert('não deu: ' + e.message); }
+    return;
+  }
 
   // "fazer disparar": registra o grupo como canal direto da lista do número.
   if (alvo.dataset.ligar) {

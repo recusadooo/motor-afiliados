@@ -26,6 +26,7 @@ import {
   resumoDiario, correlacaoDoDia, repeticaoDeProdutos,
   distribuicaoPorHora, coberturaPorGrupo, perfilDeEscolha,
 } from './intel/report';
+import { redeDeGrupos } from './intel/rede';
 
 /**
  * API do backend (roda no VPS). Serve:
@@ -677,6 +678,66 @@ app.get('/api/numeros', wrap(async (_req: Request, res: Response) => {
     });
   }
   res.json({ evolutionConfigurada: true, numeros });
+}));
+
+/**
+ * DE ONDE VEM A OFERTA DE CADA GRUPO — API, fonte própria, ou eco de outro
+ * grupo observado. Ver `intel/rede.ts` para o que cada veredito significa.
+ */
+app.get('/api/intel/rede', wrap(async (req: Request, res: Response) => {
+  res.json(await redeDeGrupos(Number(req.query.dias)));
+}));
+
+/**
+ * Passa a OBSERVAR um grupo, direto da lista de grupos do número.
+ *
+ * Garante o webhook no mesmo passo, de propósito: cadastrar o grupo sem o
+ * webhook apontado para cá é um NADA silencioso — o painel mostraria o grupo
+ * como observado e nenhuma mensagem chegaria nunca. Era o erro mais fácil de
+ * cometer neste fluxo.
+ */
+app.post('/api/intel/observar', wrap(async (req: Request, res: Response) => {
+  const jid = String(req.body?.jid ?? '').trim();
+  const nome = String(req.body?.nome ?? '').trim();
+  const kind = String(req.body?.kind ?? 'promo');
+  const instancia = String(req.body?.instancia ?? '').trim();
+  if (!jid.endsWith('@g.us')) return res.status(400).json({ error: 'id de grupo inválido (precisa terminar em @g.us)' });
+  if (!['promo', 'nicho', 'misto', 'proprio'].includes(kind)) {
+    return res.status(400).json({ error: 'tipo inválido' });
+  }
+
+  const passos: string[] = [];
+  await query(
+    `INSERT INTO intel_groups (group_jid, display_name, kind, is_active)
+     VALUES ($1,$2,$3,true)
+     ON CONFLICT (group_jid) DO UPDATE
+        SET display_name = EXCLUDED.display_name, kind = EXCLUDED.kind, is_active = true`,
+    [jid, nome || jid, kind],
+  );
+  passos.push('grupo marcado para observação');
+
+  // Webhook: sem ele nada chega, e o silêncio pareceria "eles não postam".
+  let webhookOk = false;
+  const url = await urlWebhook();
+  if (!url) {
+    passos.push('ATENÇÃO: defina PUBLIC_APP_URL — sem ela não dá para apontar o webhook, e nada será coletado');
+  } else if (!instancia) {
+    passos.push('ATENÇÃO: sem instância informada não dá para conferir o webhook');
+  } else {
+    const evo = await getEvolution();
+    if (!evo) {
+      passos.push('ATENÇÃO: Evolution não configurada — o webhook não foi verificado');
+    } else {
+      try {
+        await evo.setWebhook(instancia, url, ['MESSAGES_UPSERT']);
+        webhookOk = true;
+        passos.push(`webhook do número "${instancia}" apontado para cá`);
+      } catch (err) {
+        passos.push(`não consegui configurar o webhook (${err instanceof Error ? err.message : 'erro'}) — sem ele nada é coletado`);
+      }
+    }
+  }
+  res.json({ ok: true, jid, webhookOk, passos });
 }));
 
 /**

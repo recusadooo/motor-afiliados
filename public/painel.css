@@ -665,3 +665,35 @@ tr.linha-pulada:hover td { opacity: 1; }
 
 .ajuste { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 .ajuste > summary { color: var(--ink2); }
+
+/* ==================== DE ONDE VEM A OFERTA ==================== */
+
+.grade-origem { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--gap); }
+.cartao-origem .nota { margin: 6px 0 0; }
+
+/*
+ * Uma barra, duas partes: o que o grupo trouxe primeiro e o que ele repetiu de
+ * outro.
+ *
+ * Magenta é "eles" — o grupo agindo por conta própria. O eco é NEUTRO, e isso
+ * é decisão de conteúdo, não de estética: a primeira versão pintava eco de
+ * vermelho, que neste sistema significa "cortado, rejeitado, falhou". Ecoar
+ * não é falha — é estar a jusante, o que é uma informação, não um defeito. Cor
+ * de erro ali faria o painel emitir um julgamento que não é dele, e ainda
+ * gastaria a única cor reservada para o que de fato deu errado.
+ */
+.barra-origem {
+  display: flex; height: 8px; border-radius: 999px; overflow: hidden;
+  background: var(--well); margin: 12px 0 6px;
+}
+.barra-origem i { display: block; height: 100%; }
+.barra-origem .own { background: var(--eles); }
+.barra-origem .eco { background: var(--line-forte); }
+.corte-txt { color: var(--ink3); }
+
+.linha-aresta {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px; border-top: 1px solid var(--line);
+}
+.linha-aresta:first-child { border-top: 0; }
+.linha-aresta .seta { color: var(--ink3); font-size: 15px; }
