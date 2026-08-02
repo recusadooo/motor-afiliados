@@ -46,6 +46,10 @@ strong{color:var(--ink)}
 <div class="topbar"><span class="led"></span><b>MOTOR::AFILIADO</b><span class="doc">Perguntas / To-do</span><a href="index.html">todos os docs ↗</a></div>
 <div class="wrap"><div class="toc"><span class="toctitle">Índice</span><ul>
 <li><a href="#perguntas-setup-o-que-falta-atualizado-com-suas-respostas">PERGUNTAS / SETUP — o que falta (atualizado com suas respostas)</a><ul>
+<li><a href="#estado-agora-02082026-leia-isto-primeiro">🎯 ESTADO AGORA (02/08/2026) — leia isto primeiro</a></li>
+<li><a href="#o-grupo-que-voce-me-mostrou-nao-serve-para-a-correlacao">⚠️ O grupo que você me mostrou NÃO serve para a correlação</a></li>
+<li><a href="#a-primeira-semana-de-dados-e-um-piso-nao-a-verdade">📉 A primeira semana de dados é um PISO, não a verdade</a></li>
+<li><a href="#comando-para-conferir-na-hora">🔍 Comando para conferir na hora</a></li>
 <li><a href="#ja-resolvido-nao-precisa-fazer-nada">✅ Já resolvido (não precisa fazer nada)</a></li>
 <li><a href="#1-variaveis-do-stack-o-minimo-voce-preenche-eu-nunca-vejo">🔴 1. Variáveis do stack — o mínimo (você preenche; eu NUNCA vejo)</a></li>
 <li><a href="#2-dns-para-onde-apontar-instrucoes">🟠 2. DNS — para onde apontar (instruções)</a></li>
@@ -68,6 +72,71 @@ strong{color:var(--ink)}
 <p>A maioria das decisões foi resolvida. O que sobra é <strong>setup operacional</strong>, e agora
 quase tudo é feito <strong>pela interface</strong> (aba Conexões e Config), sem mexer em SQL/código.</p>
 </blockquote>
+<h2 id="estado-agora-02082026-leia-isto-primeiro">🎯 ESTADO AGORA (02/08/2026) — leia isto primeiro</h2>
+<p>O motor <strong>está no ar e trabalhando sozinho</strong>. O que ele já faz sem você:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>captura da Shopee</td>
+<td>a cada 30 min · o impasse que o deixou 7 dias parado foi corrigido</td>
+</tr>
+<tr>
+<td>histórico de preço</td>
+<td>medindo (é o que separa desconto real de desconto de anúncio)</td>
+</tr>
+<tr>
+<td>varredura do cardápio</td>
+<td>a cada 2h · <strong>1.770 observações</strong> já gravadas</td>
+</tr>
+<tr>
+<td>painel</td>
+<td><code>https://cupom.trakads.cloud</code> · login ativo</td>
+</tr>
+</tbody>
+</table>
+<p><strong>O que só você pode fazer — e é o que separa isto de gerar receita:</strong></p>
+<ol>
+<li><strong>Conectar um número de WhatsApp</strong> (painel → Config → Evolution → Conexões → QR).
+   Sem canal, o motor captura e mede preço mas <strong>não entrega nada</strong>. Já há dezenas de
+   ofertas aprovadas esperando na fila. O log grita isso a cada ciclo.</li>
+<li><strong>Entrar em grupos que postem SHOPEE</strong> (painel → Grupos observados).
+   Ver o aviso logo abaixo — não serve qualquer grupo.</li>
+</ol>
+<h2 id="o-grupo-que-voce-me-mostrou-nao-serve-para-a-correlacao">⚠️ O grupo que você me mostrou NÃO serve para a correlação</h2>
+<p>Das 17 mensagens que você colou: <strong>10 links Amazon, 7 Mercado Livre, ZERO Shopee.</strong></p>
+<p>A correlação cruza contra a API da <strong>Shopee</strong>. Para aquele grupo, todo post recebe o
+veredito <code>outra_plataforma</code> (etiqueta <strong>OUTRA LOJA</strong> no painel) — o que está <strong>certo</strong>, não
+é falha. Foi construído assim de propósito: sem esse veredito, o painel diria "a varredura
+não achou" quando a verdade é "não havia o que achar". As duas leituras levam a ações
+opostas: uma manda mexer na varredura, a outra manda trocar de grupo.</p>
+<p>Aquele grupo continua útil para o resto — cadência, categorias, uso de cupom, profundidade
+de desconto. Só não alimenta a correlação.</p>
+<p><strong>Dado medido dele, que contradiz o escopo:</strong> 17 posts em 60 minutos ≈ <strong>1 a cada 3,5 min</strong>.
+O motor está em 20–30 min. Eles disparam 6 a 8× mais rápido. Não é recomendação de copiar
+(o risco de ban é seu, e o modelo deles não é grupo próprio de opt-in), mas é decisão sua,
+não um default meu.</p>
+<h2 id="a-primeira-semana-de-dados-e-um-piso-nao-a-verdade">📉 A primeira semana de dados é um PISO, não a verdade</h2>
+<p>O atraso que o painel mostrar nos primeiros dias é <strong>censurado à esquerda</strong>: <code>first_seen_at</code>
+é a nossa primeira observação do produto, e a varredura começou agora. Um produto que já
+estava na Shopee há meses aparece como "visto hoje", então o "atraso" mede quando NÓS
+começamos a olhar, não quando eles decidiram postar.</p>
+<p>Isso não tem conserto por código (verifiquei: o <code>periodStartTime</code> da API é a janela do
+programa de afiliados, idêntica para todo produto — não serve). O que foi feito é o que dava:
+esses casamentos são <strong>marcados e excluídos da mediana</strong>, e o painel mostra quantos ficaram
+de fora. Quando aparecer <em>"N casamentos sem base ainda"</em>, é isto.</p>
+<h2 id="comando-para-conferir-na-hora">🔍 Comando para conferir na hora</h2>
+<pre><code class="language-bash">npm run intel:check
+</code></pre>
+<p>Puxa uma oferta real da Shopee, escreve uma mensagem no formato que os grupos usam de
+verdade, e mede parse → ingestão → correlação → relatório. Seguro em produção: usa um grupo
+de teste marcado como <code>proprio</code> (fica fora de todo relatório sobre "o que ELES escolhem") e
+apaga tudo que criou no fim, inclusive se falhar.</p>
 <h2 id="ja-resolvido-nao-precisa-fazer-nada">✅ Já resolvido (não precisa fazer nada)</h2>
 <ul>
 <li><strong>Cadência</strong>: 20–30 min + jitter 3–5 min, pausa 00–07h, teto 250/dia. Confirmado.</li>

@@ -3,6 +3,65 @@
 > A maioria das decisões foi resolvida. O que sobra é **setup operacional**, e agora
 > quase tudo é feito **pela interface** (aba Conexões e Config), sem mexer em SQL/código.
 
+## 🎯 ESTADO AGORA (02/08/2026) — leia isto primeiro
+
+O motor **está no ar e trabalhando sozinho**. O que ele já faz sem você:
+
+| | |
+|---|---|
+| captura da Shopee | a cada 30 min · o impasse que o deixou 7 dias parado foi corrigido |
+| histórico de preço | medindo (é o que separa desconto real de desconto de anúncio) |
+| varredura do cardápio | a cada 2h · **1.770 observações** já gravadas |
+| painel | `https://cupom.trakads.cloud` · login ativo |
+
+**O que só você pode fazer — e é o que separa isto de gerar receita:**
+
+1. **Conectar um número de WhatsApp** (painel → Config → Evolution → Conexões → QR).
+   Sem canal, o motor captura e mede preço mas **não entrega nada**. Já há dezenas de
+   ofertas aprovadas esperando na fila. O log grita isso a cada ciclo.
+2. **Entrar em grupos que postem SHOPEE** (painel → Grupos observados).
+   Ver o aviso logo abaixo — não serve qualquer grupo.
+
+## ⚠️ O grupo que você me mostrou NÃO serve para a correlação
+
+Das 17 mensagens que você colou: **10 links Amazon, 7 Mercado Livre, ZERO Shopee.**
+
+A correlação cruza contra a API da **Shopee**. Para aquele grupo, todo post recebe o
+veredito `outra_plataforma` (etiqueta **OUTRA LOJA** no painel) — o que está **certo**, não
+é falha. Foi construído assim de propósito: sem esse veredito, o painel diria "a varredura
+não achou" quando a verdade é "não havia o que achar". As duas leituras levam a ações
+opostas: uma manda mexer na varredura, a outra manda trocar de grupo.
+
+Aquele grupo continua útil para o resto — cadência, categorias, uso de cupom, profundidade
+de desconto. Só não alimenta a correlação.
+
+**Dado medido dele, que contradiz o escopo:** 17 posts em 60 minutos ≈ **1 a cada 3,5 min**.
+O motor está em 20–30 min. Eles disparam 6 a 8× mais rápido. Não é recomendação de copiar
+(o risco de ban é seu, e o modelo deles não é grupo próprio de opt-in), mas é decisão sua,
+não um default meu.
+
+## 📉 A primeira semana de dados é um PISO, não a verdade
+
+O atraso que o painel mostrar nos primeiros dias é **censurado à esquerda**: `first_seen_at`
+é a nossa primeira observação do produto, e a varredura começou agora. Um produto que já
+estava na Shopee há meses aparece como "visto hoje", então o "atraso" mede quando NÓS
+começamos a olhar, não quando eles decidiram postar.
+
+Isso não tem conserto por código (verifiquei: o `periodStartTime` da API é a janela do
+programa de afiliados, idêntica para todo produto — não serve). O que foi feito é o que dava:
+esses casamentos são **marcados e excluídos da mediana**, e o painel mostra quantos ficaram
+de fora. Quando aparecer *"N casamentos sem base ainda"*, é isto.
+
+## 🔍 Comando para conferir na hora
+
+```bash
+npm run intel:check
+```
+Puxa uma oferta real da Shopee, escreve uma mensagem no formato que os grupos usam de
+verdade, e mede parse → ingestão → correlação → relatório. Seguro em produção: usa um grupo
+de teste marcado como `proprio` (fica fora de todo relatório sobre "o que ELES escolhem") e
+apaga tudo que criou no fim, inclusive se falhar.
+
 ## ✅ Já resolvido (não precisa fazer nada)
 - **Cadência**: 20–30 min + jitter 3–5 min, pausa 00–07h, teto 250/dia. Confirmado.
 - **Aprovação**: 100% automática após os filtros (com fila visível para rejeitar).
