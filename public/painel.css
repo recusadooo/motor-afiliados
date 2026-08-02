@@ -42,7 +42,15 @@
      entrada  azul    matéria-prima crua que entrou no funil
      feito    verde   concluído: enviado, casado, confirmado
      corte    vermelho cortado, rejeitado, falhou
-     Nada além disso recebe cor. Estado neutro usa --ink3. --------- */
+     FRONTEIRA: estas cinco cores são vocabulário de DADO. Cromo de interface
+     (pílula ativa, aba, foco, caixa marcada) NÃO tem direito a elas — se tivesse,
+     um ponto colorido num gráfico deixaria de ter significado único. A única
+     EXCEÇÕES DELIBERADAS, todas longe de qualquer gráfico e todas justificadas
+     por serem afordância e não conteúdo: botão primário (preenchido, um por
+     tela), sublinhado da aba ativa (topo da página, é "você está aqui"), anel de
+     foco de teclado (transitório, e acessibilidade pede contraste alto e
+     consistência) e o accent da caixa de seleção. A pílula de filtro NÃO está
+     na lista: ela ficava a 40px do gráfico, na mesma faixa visual. ----------- */
   --nos: #f5a524;
   --eles: #de5f9e;
   --entrada: #3b9eff;
@@ -279,19 +287,22 @@ nav a.ativa { color: var(--ink); border-bottom-color: var(--nos); }
    ============================================================ */
 .travessia { border: 1px solid var(--line); border-radius: var(--r-lg); background: linear-gradient(180deg, var(--panel), #10151c); padding: 18px 18px 12px; overflow-x: auto; }
 .travessia svg { display: block; width: 100%; min-width: 620px; height: 190px; }
-.travessia .rail-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
+.travessia .rail-label { font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
 .travessia .hora { font-family: var(--mono); font-size: 9.5px; fill: var(--ink3); }
 .travessia .grade { stroke: var(--line); stroke-width: 1; }
 .travessia .rail { stroke: var(--line-forte); stroke-width: 1; }
 /* Densidade do cardápio: tudo que a API ofereceu, em traço fraco.
    As escolhidas acendem por cima. Assim o "muito" e o "pouco"
    coexistem sem que um apague o outro. */
-.travessia .tick-fundo { stroke: var(--nos); stroke-width: 1; opacity: 0.16; }
+.travessia .tick-fundo { stroke: var(--nos); stroke-width: 2; opacity: 0.3; }
 .travessia .tick-nos { stroke: var(--nos); stroke-width: 2.5; stroke-linecap: round; }
 .travessia .tick-eles { stroke: var(--eles); stroke-width: 2.5; stroke-linecap: round; }
 .travessia .tick-eles.solto { opacity: 0.4; stroke-dasharray: 2 2; }
-.travessia .conector { stroke: var(--eles); stroke-width: 1; opacity: 0.5; fill: none; }
-.travessia .conector:hover { opacity: 1; stroke-width: 2; }
+/* O conector É o dado — a inclinação dele é a resposta da tela inteira.
+   Estava a 1px/0.5 de opacidade e sumia no fundo escuro; visto renderizado,
+   mal dava para ler o feixe. */
+.travessia .conector { stroke: var(--eles); stroke-width: 1.6; opacity: 0.85; fill: none; }
+.travessia .conector:hover { opacity: 1; stroke-width: 3; }
 .travessia .conector.desenha { stroke-dasharray: 400; stroke-dashoffset: 400; animation: risca 0.9s ease-out forwards; }
 @keyframes risca { to { stroke-dashoffset: 0; } }
 
@@ -398,7 +409,18 @@ input::placeholder { color: var(--ink3); }
 .btn:disabled { opacity: 0.45; cursor: progress; filter: none; }
 
 .pilula { font-family: var(--mono); font-size: 12px; padding: 7px 13px; border-radius: 20px; border: 1px solid var(--line); background: var(--well); color: var(--ink2); cursor: pointer; }
-.pilula[aria-pressed="true"] { border-color: var(--nos); color: var(--ink); background: var(--nos-fraco); }
+/* Filtro ligado NÃO usa cor de dado.
+   Na aba Inteligência o âmbar aparece no gráfico como "oferta que a API tinha"
+   e aparecia, logo acima, como "este filtro está ligado" — dois significados
+   para a mesma cor, a 40px de distância. Estado de controle agora se distingue
+   por PESO e CONTRASTE (borda clara + fundo levantado), que é o que um controle
+   precisa comunicar, sem roubar vocabulário do dado. */
+.pilula[aria-pressed="true"] {
+  border-color: var(--ink2);
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.09);
+  font-weight: 600;
+}
 
 .filtros { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 14px; margin-bottom: 16px; }
 .filtros .grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(152px, 1fr)); gap: 10px; }
@@ -471,7 +493,10 @@ tr:hover td { background: rgba(255, 255, 255, 0.02); }
 
 /* Conector de lag NEGATIVO: eles se anteciparam a nós. Tracejado para não ser
    lido como "atraso curto", que é o oposto do que o dado diz. */
-.travessia .conector.antecipou { stroke: var(--entrada); stroke-dasharray: 3 3; opacity: 0.75; }
+/* "Eles se anteciparam a nós" continua sendo sobre ELES: mesma cor, traço
+   diferente. Estava em azul (--entrada = matéria-prima), que é outro assunto.
+   A distinção é de TIPO de evento, não de ator — então varia o traço, não o matiz. */
+.travessia .conector.antecipou { stroke-dasharray: 3 3; opacity: 0.9; stroke-width: 1.5; }
 /* Post de outra loja: presente na linha do tempo, mas visivelmente fora do
    jogo — nunca poderia casar contra a API da Shopee. */
 .travessia .tick-eles.outra-loja { opacity: 0.35; stroke-width: 2; }

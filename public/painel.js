@@ -362,7 +362,31 @@ async function desenharTravessia(dia) {
   }
 
   const L = 46, R = 984, TOPO = 58, BASE = 142;
-  const x = (minutos) => L + (Math.max(0, Math.min(1440, minutos)) / 1440) * (R - L);
+
+  /* JANELA ADAPTATIVA — olhar o gráfico renderizado é o que revelou isto.
+     Com eixo fixo de 00h-24h, quem abre o painel às 10h vê dois terços de nada,
+     e a INCLINAÇÃO (que é o dado) fica espremida num canto. Agora o eixo se
+     ajusta ao intervalo em que houve movimento, com folga, e nunca menor que
+     4h para não exagerar diferenças de minutos. */
+  /* A janela sai dos POSTS e das observações que casaram — não da faixa de
+     densidade. A densidade é contexto de fundo e cobre o dia inteiro (a
+     varredura roda de 2 em 2h), então deixá-la mandar na escala devolvia
+     sempre 24h e espremia de novo o que interessa. O que interessa é onde
+     eles postaram e de onde veio cada linha. */
+  const marcos = [];
+  for (const l of linhas || []) {
+    const mp = minutosTZ(l.postedAt);
+    if (mp != null) marcos.push(mp);
+    if (l.firstSeenAt && diaTZ(l.firstSeenAt) === dia) {
+      const mo = minutosTZ(l.firstSeenAt);
+      if (mo != null) marcos.push(mo);
+    }
+  }
+  let ini = marcos.length ? Math.max(0, Math.min(...marcos) - 30) : 0;
+  let fim = marcos.length ? Math.min(1440, Math.max(...marcos) + 30) : 1440;
+  if (fim - ini < 240) { const meio = (ini + fim) / 2; ini = Math.max(0, meio - 120); fim = Math.min(1440, meio + 120); }
+  const span = Math.max(60, fim - ini);
+  const x = (minutos) => L + ((Math.max(ini, Math.min(fim, minutos)) - ini) / span) * (R - L);
   const minutosDe = minutosTZ;
   /* Observação de um dia ANTERIOR é ancorada na borda esquerda do gráfico: a
      linha longa e rasa até o post é justamente o desenho de "eles esperaram
@@ -379,18 +403,21 @@ async function desenharTravessia(dia) {
 
   const partes = [];
 
-  // grade de 3 em 3 horas
-  for (let h = 0; h <= 24; h += 3) {
-    const px = x(h * 60);
+  // Grade com passo escolhido pela largura da janela: 6 a 8 marcas, sempre.
+  const passo = span <= 300 ? 30 : span <= 720 ? 60 : span <= 1080 ? 120 : 180;
+  for (let m = Math.ceil(ini / passo) * passo; m <= fim; m += passo) {
+    const px = x(m);
+    const hh = String(Math.floor(m / 60) % 24).padStart(2, '0');
+    const mm = String(m % 60).padStart(2, '0');
     partes.push(`<line class="grade" x1="${px}" y1="34" x2="${px}" y2="166"/>`);
-    partes.push(`<text class="hora" x="${px}" y="180" text-anchor="middle">${String(h % 24).padStart(2, '0')}h</text>`);
+    partes.push(`<text class="hora" x="${px}" y="180" text-anchor="middle">${hh}${passo < 60 ? ':' + mm : 'h'}</text>`);
   }
 
   // trilhos
   partes.push(`<line class="rail" x1="${L}" y1="${TOPO}" x2="${R}" y2="${TOPO}"/>`);
   partes.push(`<line class="rail" x1="${L}" y1="${BASE}" x2="${R}" y2="${BASE}"/>`);
-  partes.push(`<text class="rail-label" x="0" y="${TOPO - 12}" fill="var(--nos)">a API ofereceu</text>`);
-  partes.push(`<text class="rail-label" x="0" y="${BASE + 24}" fill="var(--eles)">eles postaram</text>`);
+  partes.push(`<text class="rail-label" x="${L}" y="${TOPO - 14}" fill="var(--nos)">a API ofereceu</text>`);
+  partes.push(`<text class="rail-label" x="${L}" y="${BASE + 26}" fill="var(--eles)">eles postaram</text>`);
 
   // densidade do cardápio (fundo): altura proporcional ao balde mais cheio
   const maxObs = Math.max(1, ...(densidade.observacoes || []).map((b) => b.n));
@@ -412,7 +439,7 @@ async function desenharTravessia(dia) {
     const mObs = minutosDe(l.firstSeenAt);
     const mPost = minutosDe(l.postedAt);
     if (mObs == null || mPost == null) return; // linha sem hora utilizável: pula
-    const xo = antesDoDia(l.firstSeenAt) ? x(0) : depoisDoDia(l.firstSeenAt) ? x(1440) : x(mObs);
+    const xo = antesDoDia(l.firstSeenAt) ? x(ini) : depoisDoDia(l.firstSeenAt) ? x(fim) : x(mObs);
     const xp = x(mPost);
     const rotulo = `${l.titleGuess || l.obsTitle || 'oferta'} · atraso ${duracao(l.lagSeconds)}`;
     partes.push(`<line class="tick-nos" x1="${xo}" y1="${TOPO - 7}" x2="${xo}" y2="${TOPO + 7}"/>`);
