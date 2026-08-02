@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "Motor de afiliados Shopee-first / WhatsApp-first (captura -> link afiliado -> copy IA -> gotejamento em grupo de WhatsApp)",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -15,7 +17,8 @@
     "shopee:check": "tsx src/commands/shopeeCheck.ts",
     "dryrun": "tsx src/commands/dryRun.ts",
     "migrate": "tsx src/migrate.ts",
-    "test": "node --import tsx --test src/logic.test.ts src/intel/intel.test.ts src/intel/reais.test.ts"
+    "test": "node --import tsx --test src/logic.test.ts src/intel/intel.test.ts src/intel/reais.test.ts",
+    "intel:check": "tsx src/commands/intelCheck.ts"
   },
   "dependencies": {
     "bullmq": "^5.34.0",
