@@ -63,6 +63,8 @@ if (!DB) {
   const TITULO_CORRENTE = 'Air Fryer Philco PFR15P 5,5L Gourmet Black 1700W';
   const TITULO_API = 'Air Fryer Philco PFR15P 5,5L Gourmet Black 1700W Cesto Antiaderente 127V';
 
+  // Carimbo para a limpeza poder apagar SÓ o que este arquivo criou.
+  const TRIGGER_TESTE = '__teste_entrada__';
   const GRUPO = '120363999000000777@g.us';
   const INSTANCIA = 'teste-entrada';
 
@@ -144,6 +146,34 @@ if (!DB) {
     return false;
   };
 
+  /**
+   * Prova que o pipeline drenou ALÉM do ponto de interesse.
+   *
+   * Asserção negativa ("isto não pode ser gravado") não tem condição pela qual
+   * esperar — a linha ausente nunca aparece. A primeira versão usava um
+   * `setTimeout` fixo de 400ms, o que torna a capacidade de falhar uma aposta
+   * em relógio de parede: numa máquina lenta ou com Postgres carregado, uma
+   * guarda REMOVIDA ainda mostraria `count = 0` aos 400ms e o teste passaria
+   * verde com o defeito presente — exatamente o que este arquivo existe para
+   * impedir.
+   *
+   * A rota responde 200 ANTES de processar (api.ts), então mandar uma mensagem
+   * LEGÍTIMA depois e esperar ELA aparecer prova que o webhook anterior já foi
+   * processado até o fim. Espera por condição, não por tempo.
+   */
+  let sentinelas = 0;
+  const drenou = async () => {
+    const id = `WAMID-SENTINELA-${++sentinelas}`;
+    await postWebhook(token, upsert({
+      key: { id },
+      message: { conversation: msgReal(`Sentinela numero ${sentinelas} do drenar`) },
+    }));
+    const ok = await ateGravar(
+      'SELECT count(*) AS n FROM intel_posts WHERE wa_message_id = $1', [id],
+    );
+    assert.ok(ok, 'a sentinela não chegou — o pipeline não drenou, o teste seria inconclusivo');
+  };
+
   const contarPosts = async () => {
     const r = await queryOne<{ n: string }>(
       'SELECT count(*) AS n FROM intel_posts p JOIN intel_groups g ON g.id = p.group_id WHERE g.group_jid = $1',
@@ -170,13 +200,31 @@ if (!DB) {
   });
 
   after(async () => {
-    await query('DELETE FROM intel_groups WHERE group_jid = $1', [GRUPO]);
-    // As observações semeadas na corrente completa não somem por CASCADE do
-    // grupo — sem isto, rodadas repetidas acumulam lixo no banco reutilizado.
-    await query('DELETE FROM api_observations WHERE product_id = $1', ['20199206047']);
-    await query(`DELETE FROM intel_sweeps WHERE stats = '{}'::jsonb`);
-    await new Promise<void>((r) => server.close(() => r()));
-    await closePool();
+    /*
+     * A limpeza vai em try/finally porque servidor e pool PRECISAM fechar de
+     * qualquer jeito. Se um DELETE lançasse (papel sem permissão, conexão
+     * caída, tabela ausente), `server.close()` e `closePool()` não rodariam, e
+     * o servidor HTTP + o pool do pg seguram o event loop: `npm run
+     * test:entrada` TRAVARIA para sempre, sem `--test-force-exit` nem
+     * `--test-timeout` no script. O operador veria um hang, não a causa.
+     */
+    try {
+      await query('DELETE FROM intel_groups WHERE group_jid = $1', [GRUPO]);
+      /*
+       * Escopado por `trigger`, não por id de produto real. A versão anterior
+       * fazia `DELETE FROM api_observations WHERE product_id = '20199206047'`
+       * — id de um produto REAL da Shopee, sem escopo de varredura: apontado
+       * para um banco compartilhado por engano, apagaria observação legítima
+       * daquele produto de TODAS as varreduras, e como `intel_matches`
+       * referencia com ON DELETE SET NULL, os casamentos perderiam a
+       * observação em silêncio. Apagar a varredura do teste já cascateia as
+       * observações dela, então uma query escopada substitui as duas.
+       */
+      await query(`DELETE FROM intel_sweeps WHERE trigger = $1`, [TRIGGER_TESTE]);
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+      await closePool();
+    }
   });
 
   /* ============ a fronteira de segurança ============ */
@@ -187,8 +235,8 @@ if (!DB) {
     assert.equal(r.status, 401);
     // O que importa não é só o 401: é que o corpo não foi processado. Sem esta
     // asserção, um `res.status(401)` seguido de processamento passaria.
-    await new Promise((res) => setTimeout(res, 300));
-    assert.equal(await contarPosts(), antes, 'payload com token inválido NÃO pode ser ingerido');
+    await drenou();
+    assert.equal(await contarPosts(), antes + 1, 'payload com token inválido NÃO pode ser ingerido (só a sentinela entra)');
   });
 
   test('caminho antigo sem token é recusado', async () => {
@@ -251,7 +299,7 @@ if (!DB) {
       key: { id: 'WAMID-EU', fromMe: true },
       message: { conversation: msgReal('Ventilador de Coluna Mallory Turbo 40cm') },
     }));
-    await new Promise((res) => setTimeout(res, 400));
+    await drenou();
     const n = await queryOne<{ n: string }>(
       'SELECT count(*) AS n FROM intel_posts WHERE wa_message_id = $1', ['WAMID-EU'],
     );
@@ -298,7 +346,7 @@ if (!DB) {
         key: { id: 'WAMID-DM', remoteJid: jidDM },
         message: { conversation: msgReal('Aspirador de Po Vertical Electrolux ERG20') },
       }));
-      await new Promise((res) => setTimeout(res, 400));
+      await drenou();
       const n = await queryOne<{ n: string }>(
         'SELECT count(*) AS n FROM intel_posts WHERE wa_message_id = $1', ['WAMID-DM'],
       );
@@ -319,7 +367,7 @@ if (!DB) {
         message: { conversation: MSG_REAL },
       },
     });
-    await new Promise((res) => setTimeout(res, 300));
+    await drenou();
     const n = await queryOne<{ n: string }>(
       'SELECT count(*) AS n FROM intel_posts WHERE wa_message_id = $1', ['WAMID-DESCONHECIDO'],
     );
@@ -365,7 +413,7 @@ if (!DB) {
     await postWebhook(token, corpo);
     assert.ok(await ateGravar('SELECT count(*) AS n FROM intel_posts WHERE wa_message_id = $1', ['WAMID-REPETIDA']));
     await postWebhook(token, corpo);
-    await new Promise((res) => setTimeout(res, 400));
+    await drenou(); // mesma razão das outras: "não gravou de novo" é asserção negativa
     const n = await queryOne<{ n: string }>(
       'SELECT count(*) AS n FROM intel_posts WHERE wa_message_id = $1', ['WAMID-REPETIDA'],
     );
@@ -387,7 +435,7 @@ if (!DB) {
     await postWebhook(token, upsert({ key: { id: 'WAMID-HASH-A' }, message: { conversation: txt } }));
     assert.ok(await ateGravar('SELECT count(*) AS n FROM intel_posts WHERE wa_message_id = $1', ['WAMID-HASH-A']));
     await postWebhook(token, upsert({ key: { id: 'WAMID-HASH-B' }, message: { conversation: txt } }));
-    await new Promise((res) => setTimeout(res, 500));
+    await drenou();
 
     const n = await queryOne<{ n: string }>(
       `SELECT count(*) AS n FROM intel_posts p JOIN intel_groups g ON g.id = p.group_id
@@ -403,8 +451,9 @@ if (!DB) {
     // Semeia no cardápio a MESMA oferta, 40 min ANTES do post — o cenário que o
     // dashboard existe para responder ("eles viram e postaram X min depois").
     const sweep = await queryOne<{ id: string }>(
-      `INSERT INTO intel_sweeps (started_at, finished_at, stats)
-       VALUES (now() - interval '2 hours', now() - interval '2 hours', '{}'::jsonb) RETURNING id`,
+      `INSERT INTO intel_sweeps (started_at, finished_at, trigger, stats)
+       VALUES (now() - interval '2 hours', now() - interval '2 hours', $1, '{}'::jsonb) RETURNING id`,
+      [TRIGGER_TESTE],
     );
     const agora = new Date();
     const observadoEm = new Date(agora.getTime() - 40 * 60_000);
@@ -467,7 +516,10 @@ if (!DB) {
      */
     const hoje = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
-    }).format(new Date());
+      // Derivado do INSTANTE DO POST, não de uma leitura nova do relógio vários
+      // `await` depois: se o teste cruzar a meia-noite de SP no meio da
+      // execução, o post fica num dia e a consulta noutro.
+    }).format(agora);
     const corr = await correlacaoDoDia(hoje);
     const linha = corr.find((c) => String(c.postId) === String(post!.id));
     assert.ok(linha, `o post tem que aparecer na travessia do dia (${corr.length} linhas no dia)`);

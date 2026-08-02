@@ -152,9 +152,24 @@ async function carregarFunil() {
   const [stats, runs] = await Promise.all([api('/api/stats'), api('/api/capture/runs')]);
   const ultimo = (runs || []).map((r) => r.stats).find((s) => s && s.fetched != null) || {};
   const buscadas = ultimo.fetched || 0;
-  const cortes = ultimo.cut || {};
-  const cortadas = Object.values(cortes).reduce((a, b) => a + Number(b), 0);
   const selecionadas = ultimo.selected || 0;
+  /*
+   * "Cortadas" é buscadas - aprovadas, NÃO a soma do mapa `cut`.
+   *
+   * `cut()` conta EVENTOS, não produtos: "erro de API" (shopeeFeed.ts) é por
+   * keyword e não incrementa `fetched`; "captura repetida" incide sobre
+   * finalistas JÁ contados em `selected`. Então `sum(cut)` = (buscadas -
+   * aprovadas) + erros + repetidas, e num ciclo ruim a faixa "cortadas" ficava
+   * MAIS LARGA que "buscadas" — um funil que alarga no meio.
+   *
+   * Isto ficou pior antes de melhorar: a tabela de Ciclos foi corrigida num
+   * commit anterior e ESTA faixa não, então as duas telas passaram a mostrar
+   * números diferentes para o mesmo ciclo, com as mesmas cores e a mesma
+   * gramática. Contradição entre telas é pior que erro nas duas.
+   * A quebra por motivo continua na coluna de cortes de Ciclos, que é onde
+   * contagem de evento faz sentido.
+   */
+  const cortadas = Math.max(0, buscadas - selecionadas);
   const o = stats.offers || {};
   const naFila = (o.approved || 0) + (o.pending || 0);
   const enviadasHoje = stats.sentToday || 0;
@@ -312,7 +327,6 @@ async function carregarCiclos() {
      * gravado pelo motor (shopeeFeed.ts) e o painel simplesmente não lia.
      */
     const pulado = !!s.skipped;
-    const cortadas = Object.values(s.cut || {}).reduce((a, b) => a + Number(b), 0);
     const dur = s.ms != null ? (s.ms / 1000).toFixed(1) + 's' : (r.finished_at ? '—' : 'rodando…');
     const topo = Object.entries(s.cut || {}).sort((a, b) => b[1] - a[1]).slice(0, 3)
       .map(([m, n]) => `${n}× ${m}`).join(' · ') || '—';
@@ -745,8 +759,18 @@ async function carregarGrupos() {
    * palpite; depois disso quem manda é o usuário.
    */
   const caixa = $('add-grupo-caixa');
-  if (caixa && !caixa.dataset.decidido) {
-    caixa.open = !grupos.length;
+  if (caixa) {
+    /*
+     * Decide na primeira carga E sempre que a lista FICA vazia. Só a primeira
+     * carga não bastava: quem tinha 3 grupos (caixa fechada) e removia os três
+     * ficava com um estado vazio dizendo "cole o id aqui" apontando para um
+     * formulário recolhido que não reabria mais enquanto a página vivesse — a
+     * abertura automática ERA a compensação do estado vazio não ter botão.
+     * Fora dessas transições quem manda é o usuário: reatribuir a cada carga
+     * fechava a caixa por cima de quem a tinha aberto, escondendo inclusive a
+     * confirmação de "grupo cadastrado", que é escrita dentro dela.
+     */
+    if (!caixa.dataset.decidido || !grupos.length) caixa.open = !grupos.length;
     caixa.dataset.decidido = '1';
   }
   if (!grupos.length) {
@@ -931,7 +955,10 @@ document.addEventListener('click', async (ev) => {
       // clipboard exige contexto seguro (https) — em http a promessa rejeita.
       btnCopiar.textContent = 'selecione e copie';
     }
-    setTimeout(() => { btnCopiar.textContent = rotulo; }, 1800);
+    // Cancela o timer do clique anterior: sem isto, cliques em t=0 e t=1000
+    // faziam o primeiro timer apagar o "copiado" do segundo aos 800ms.
+    clearTimeout(Number(btnCopiar.dataset.timer) || 0);
+    btnCopiar.dataset.timer = String(setTimeout(() => { btnCopiar.textContent = rotulo; }, 1800));
     return;
   }
 

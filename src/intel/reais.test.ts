@@ -153,3 +153,37 @@ test('real: código de produto da Amazon NÃO é confundido com telefone', () =>
   assert.match(limpo, /B0F1WDN2PC/);
   assert.doesNotMatch(limpo, /\[tel\]/);
 });
+
+/* ==================== URL vs TELEFONE ==================== */
+
+test('real: o id do produto DENTRO da URL sobrevive à limpeza de PII', () => {
+  /*
+   * Achado de auditoria, medido: o id de produto da Shopee tem 11 dígitos
+   * ("20199206047") e casava com o padrão de corrida crua de 10-13 dígitos, o
+   * que gravava `.../366017406/[tel]`. O link deixava de identificar o produto
+   * — a única coisa pela qual ele é guardado.
+   */
+  const t = scrubPII('Air Fryer\nhttps://shopee.com.br/product/366017406/20199206047');
+  assert.match(t, /20199206047/, 'o id do produto não pode ser confundido com telefone');
+  assert.match(t, /366017406/, 'o id da loja também não');
+});
+
+test('real: mas telefone DENTRO de link de WhatsApp continua saindo', () => {
+  // A exceção que a proteção de URL não pode abrir: em wa.me o dígito longo É
+  // telefone, e guardar isso seria justamente o que a limpeza existe p/ impedir.
+  for (const link of [
+    'fala comigo https://wa.me/5516982062623',
+    'https://api.whatsapp.com/send?phone=5516982062623&text=oi',
+  ]) {
+    const t = scrubPII(link);
+    assert.doesNotMatch(t, /5516982062623/, `telefone vazou em: ${link}`);
+  }
+});
+
+test('real: link de afiliado do concorrente sobrevive inteiro', () => {
+  // Amazon e Mercado Livre: são estes que aparecem no grupo real que o dono
+  // colou, e é por eles que o veredito `outra_plataforma` é decidido.
+  const t = scrubPII('https://amazon.com.br/dp/B0ABC12345?tag=mypromoredes-20 e https://meli.la/aBcD3fG');
+  assert.match(t, /B0ABC12345\?tag=mypromoredes-20/);
+  assert.match(t, /meli\.la\/aBcD3fG/);
+});
