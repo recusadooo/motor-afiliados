@@ -700,7 +700,7 @@ async function carregarGrupos() {
       <select data-kind-de="${g.id}" style="font-size:12px;padding:5px 8px">
         ${Object.entries(KIND_ROTULO).map(([k, v]) => `<option value="${k}"${g.kind === k ? ' selected' : ''}>${v}</option>`).join('')}
       </select>
-      <button class="btn pequeno ${g.is_active ? 'perigo' : ''}" data-grupo="${g.id}" data-op="${g.is_active ? 'pausar' : 'ativar'}">${g.is_active ? 'pausar' : 'ativar'}</button>
+      <button class="btn fantasma pequeno${g.is_active ? ' perigo' : ''}" data-grupo="${g.id}" data-op="${g.is_active ? 'pausar' : 'ativar'}">${g.is_active ? 'pausar' : 'ativar'}</button>
       <button class="btn perigo pequeno" data-grupo="${g.id}" data-op="remover">remover</button>
     </div></article>`).join('');
 }
@@ -748,8 +748,13 @@ async function carregarCanais() {
   }
   alvo.innerHTML = rows.map((c) => {
     const pausado = c.status !== 'active';
+    /* Ação de LINHA usa fantasma, nunca o âmbar do botão primário. Visto
+       renderizado: um canal pausado ganhava um "ativar" âmbar dentro da lista,
+       ao lado de "remover" fantasma — dois pesos para ações do mesmo nível, e
+       um quarto âmbar competindo na mesma tela com o "1. Criar e configurar",
+       que é o passo que de fato move você adiante. */
     const alterna = c.role === 'poster'
-      ? `<button class="btn pequeno ${pausado ? '' : 'perigo'}" data-canal="${c.id}" data-op="${pausado ? 'active' : 'paused'}">${pausado ? 'ativar' : 'pausar'}</button>`
+      ? `<button class="btn fantasma pequeno${pausado ? '' : ' perigo'}" data-canal="${c.id}" data-op="${pausado ? 'active' : 'paused'}">${pausado ? 'ativar' : 'pausar'}</button>`
       : '';
     return `<article class="linha-item sem-foto">
       <div class="corpo">
