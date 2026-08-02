@@ -171,6 +171,10 @@ if (!DB) {
 
   after(async () => {
     await query('DELETE FROM intel_groups WHERE group_jid = $1', [GRUPO]);
+    // As observações semeadas na corrente completa não somem por CASCADE do
+    // grupo — sem isto, rodadas repetidas acumulam lixo no banco reutilizado.
+    await query('DELETE FROM api_observations WHERE product_id = $1', ['20199206047']);
+    await query(`DELETE FROM intel_sweeps WHERE stats = '{}'::jsonb`);
     await new Promise<void>((r) => server.close(() => r()));
     await closePool();
   });
@@ -233,17 +237,75 @@ if (!DB) {
   /* ============ o que o listener tem que ignorar ============ */
 
   test('mensagem própria (fromMe) é ignorada', async () => {
-    const antes = await contarPosts();
-    await postWebhook(token, upsert({ key: { id: 'WAMID-EU', fromMe: true } }));
-    await new Promise((res) => setTimeout(res, 300));
-    assert.equal(await contarPosts(), antes, 'o que o próprio número manda não é inteligência');
+    /*
+     * TEXTO PRÓPRIO, e não o padrão do helper. Com o texto padrão este teste
+     * não podia falhar: o caminho feliz já tinha gravado aquele mesmo texto, no
+     * mesmo grupo, no mesmo dia, e `ingestPost` insere com ON CONFLICT DO
+     * NOTHING contra `uq_intel_posts_hash_dia`. Tirar a guarda de `fromMe` do
+     * listener deixaria a mensagem passar, o INSERT bateria no índice, nada
+     * novo seria gravado — e o teste seguiria VERDE com o defeito presente.
+     * Segunda vez que este arquivo cai em passe vazio; por isso a verificação
+     * agora é por `wa_message_id`, que é específico deste caso.
+     */
+    await postWebhook(token, upsert({
+      key: { id: 'WAMID-EU', fromMe: true },
+      message: { conversation: msgReal('Ventilador de Coluna Mallory Turbo 40cm') },
+    }));
+    await new Promise((res) => setTimeout(res, 400));
+    const n = await queryOne<{ n: string }>(
+      'SELECT count(*) AS n FROM intel_posts WHERE wa_message_id = $1', ['WAMID-EU'],
+    );
+    assert.equal(Number(n?.n ?? 0), 0, 'o que o próprio número manda não é inteligência');
   });
 
-  test('conversa privada (não @g.us) é ignorada', async () => {
-    const antes = await contarPosts();
-    await postWebhook(token, upsert({ key: { id: 'WAMID-DM', remoteJid: '5511999999999@s.whatsapp.net' } }));
-    await new Promise((res) => setTimeout(res, 300));
-    assert.equal(await contarPosts(), antes, 'DM não é grupo — e é onde mora PII de verdade');
+  test('conversa privada (não @g.us) é ignorada, MESMO se o jid for cadastrado', async () => {
+    /*
+     * Duas correções neste caso, ambas medidas por mutação:
+     *
+     * 1. Contar por `wa_message_id`, não por grupo. `contarPosts()` filtra por
+     *    `g.group_jid = GRUPO` e uma DM jamais se ligaria a esse grupo — a
+     *    asserção era `0 === 0` mesmo com todas as guardas removidas.
+     *
+     * 2. CADASTRAR o jid da DM como grupo observado. Sem isso o teste continuava
+     *    incapaz de falhar: removi as guardas de `@g.us` do listener E da
+     *    ingestão e ele seguiu verde, porque a terceira trava ("grupo não
+     *    cadastrado") segurava sozinha. Cadastrando, a única coisa entre a DM e
+     *    o banco passa a ser a checagem de `@g.us` — que é o que este teste diz
+     *    verificar.
+     *
+     * E o cenário é REAL, não artificial: o campo "adicionar grupo" do painel
+     * aceita um jid colado. Colar o de uma conversa privada é erro de dedo
+     * plausível, e a consequência seria começar a gravar DM — que é justamente
+     * onde mora PII de verdade.
+     *
+     * LIMITE HONESTO, medido por mutação: `@g.us` é checado em DOIS lugares
+     * (listener.ts e ingest.ts). Removi um de cada vez e o teste seguiu verde;
+     * só com os DOIS fora é que ficou vermelho. Ou seja, este é um teste de
+     * DESFECHO ("DM não vira post"), protegido por defesa em profundidade — ele
+     * não detecta a perda de UMA das duas guardas isoladamente. Fica assim de
+     * propósito: o desfecho é o que importa, e as duas guardas são redundância
+     * deliberada. Mas está escrito aqui para ninguém ler "verde" como "a guarda
+     * do listener está viva".
+     */
+    const jidDM = '5511999999999@s.whatsapp.net';
+    await query(
+      `INSERT INTO intel_groups (group_jid, display_name, kind, is_active) VALUES ($1,$2,'promo',true)
+         ON CONFLICT (group_jid) DO UPDATE SET is_active = true`,
+      [jidDM, 'jid de DM colado por engano'],
+    );
+    try {
+      await postWebhook(token, upsert({
+        key: { id: 'WAMID-DM', remoteJid: jidDM },
+        message: { conversation: msgReal('Aspirador de Po Vertical Electrolux ERG20') },
+      }));
+      await new Promise((res) => setTimeout(res, 400));
+      const n = await queryOne<{ n: string }>(
+        'SELECT count(*) AS n FROM intel_posts WHERE wa_message_id = $1', ['WAMID-DM'],
+      );
+      assert.equal(Number(n?.n ?? 0), 0, 'DM não é grupo — e é onde mora PII de verdade');
+    } finally {
+      await query('DELETE FROM intel_groups WHERE group_jid = $1', [jidDM]);
+    }
   });
 
   test('grupo NÃO cadastrado é recusado (o painel é o liga/desliga)', async () => {
@@ -393,7 +455,19 @@ if (!DB) {
     assert.ok(total >= 1, `o placar tem que contar o post, veio ${JSON.stringify(serie)}`);
     assert.ok(totalCasados >= 1, 'e contar o casamento');
 
-    const hoje = new Date().toISOString().slice(0, 10);
+    /*
+     * O DIA tem que ser calculado no MESMO fuso que o relatório usa. Este
+     * `toISOString().slice(0,10)` devolvia o dia em UTC enquanto
+     * `correlacaoDoDia` delimita em America/Sao_Paulo (report.ts) — então das
+     * 21h às 23h59 de Brasília o teste consultaria o dia SEGUINTE, não acharia
+     * o post e ficaria vermelho sem nada estar quebrado. Este arquivo passou
+     * por MINUTOS: rodei logo depois da meia-noite de SP. É exatamente a classe
+     * de bug já corrigida no painel (fuso via Intl, não offset chumbado),
+     * reintroduzida no teste.
+     */
+    const hoje = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
     const corr = await correlacaoDoDia(hoje);
     const linha = corr.find((c) => String(c.postId) === String(post!.id));
     assert.ok(linha, `o post tem que aparecer na travessia do dia (${corr.length} linhas no dia)`);

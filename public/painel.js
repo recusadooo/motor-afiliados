@@ -331,11 +331,24 @@ async function carregarCiclos() {
      */
     const buscadas = Number(s.fetched ?? 0);
     const aprovadas = Number(s.selected ?? 0);
-    const pCorte = buscadas > 0 ? (cortadas / buscadas) * 100 : 0;
+    /*
+     * A barra é derivada de buscadas e aprovadas SÓ — nunca da soma do mapa de
+     * cortes. Motivo: `cut()` conta EVENTOS, não produtos. "erro de API"
+     * (shopeeFeed.ts) é por keyword e não incrementa `fetched`; "captura
+     * repetida" incide sobre finalistas que JÁ entraram em `stats.selected`
+     * (fixado antes). Então `cortadas + aprovadas > buscadas` é normal, e a
+     * versão anterior renormalizava em silêncio: a barra passava a mostrar uma
+     * proporção que CONTRADIZIA o "10 de 100" impresso ao lado dela.
+     * Agora o vermelho é "o que não passou" (buscadas - aprovadas), que fecha
+     * por construção. A quebra por motivo continua na coluna de cortes, que é
+     * onde contagem de evento faz sentido.
+     */
+    const naoPassaram = Math.max(0, buscadas - aprovadas);
     const pOk = buscadas > 0 ? (aprovadas / buscadas) * 100 : 0;
+    const pCorte = buscadas > 0 ? (naoPassaram / buscadas) * 100 : 0;
     const barra = pulado || buscadas === 0
       ? '<span class="mini-funil vazio"></span>'
-      : `<span class="mini-funil" title="${cortadas} cortadas · ${aprovadas} aprovadas de ${buscadas}">
+      : `<span class="mini-funil" title="${naoPassaram} não passaram · ${aprovadas} aprovadas de ${buscadas} buscadas">
            <i class="corte" style="width:${pCorte.toFixed(1)}%"></i><i class="ok" style="width:${pOk.toFixed(1)}%"></i>
          </span>`;
     const resultado = pulado
@@ -723,10 +736,19 @@ const kindClasse = (k) => (k === 'proprio' ? 'nos' : 'eles');
 async function carregarGrupos() {
   const [grupos] = await Promise.all([api('/api/intel/groups'), guardar(carregarCobertura, 'cobertura')]);
   const alvo = $('lista-grupos');
-  // Sem grupo nenhum, cadastrar é a única coisa a fazer — o formulário fica
-  // aberto. Com grupos, a tela passa a servir para conferir, e ele recolhe.
+  /*
+   * SÓ na primeira carga. `carregarGrupos()` roda de novo a cada ação do
+   * usuário (cadastrar, pausar, remover, trocar o tipo no select, "atualizar"),
+   * e reatribuir `open` a cada vez fechava a caixa POR CIMA de quem a tinha
+   * aberto — inclusive escondendo a própria confirmação de "grupo cadastrado",
+   * que é escrita em #g-msg, filho direto do <details>. Estado inicial é
+   * palpite; depois disso quem manda é o usuário.
+   */
   const caixa = $('add-grupo-caixa');
-  if (caixa) caixa.open = !grupos.length;
+  if (caixa && !caixa.dataset.decidido) {
+    caixa.open = !grupos.length;
+    caixa.dataset.decidido = '1';
+  }
   if (!grupos.length) {
     alvo.innerHTML = vazio('Nenhum grupo observado',
       'Entre num grupo de promoção com o número de escuta, cole o id aqui, e o motor começa a comparar o que eles postam com o que a API ofereceu no mesmo momento.');
@@ -896,7 +918,12 @@ document.addEventListener('click', async (ev) => {
   const btnCopiar = ev.target.closest('[data-copiar]');
   if (btnCopiar) {
     const alvoTxt = $(btnCopiar.dataset.copiar);
-    const rotulo = btnCopiar.textContent;
+    // O rótulo original vai para um atributo na PRIMEIRA vez. Lendo de
+    // `textContent` a cada clique, um segundo clique dentro da janela de 1,8s
+    // capturava "copiado" como se fosse o original e o botão ficava travado
+    // nesse texto até o próximo render.
+    if (!btnCopiar.dataset.rotulo) btnCopiar.dataset.rotulo = btnCopiar.textContent;
+    const rotulo = btnCopiar.dataset.rotulo;
     try {
       await navigator.clipboard.writeText(alvoTxt ? alvoTxt.textContent : '');
       btnCopiar.textContent = 'copiado';
