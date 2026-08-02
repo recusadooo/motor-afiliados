@@ -77,7 +77,13 @@ async function setNextRun(channelId: string, ms: number): Promise<void> {
 
 /* ---------- envio de uma oferta ---------- */
 
-async function dispatchOne(channel: ChannelRow): Promise<boolean> {
+/**
+ * Exportada para ser TESTÁVEL. Era interna, e por isso a última perna do
+ * pipeline — o disparo de verdade, com claim idempotente em `send_logs` — era
+ * a única que nunca tinha sido exercitada: testá-la parecia exigir um número
+ * de WhatsApp real. Não exige: exige uma Evolution falsa.
+ */
+export async function dispatchOne(channel: ChannelRow): Promise<boolean> {
   const claimed = await tx(async (c) => {
     const r = await c.query<OfferRow & { attempt?: number }>(
       `SELECT o.* FROM offers o
