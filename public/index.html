@@ -29,6 +29,7 @@
   <a href="/ciclos" data-secao="ciclos">Ciclos</a>
   <a href="/inteligencia" data-secao="inteligencia">Inteligência</a>
   <a href="/grupos" data-secao="grupos">Grupos observados</a>
+  <a href="/filas" data-secao="filas">Filas</a>
   <a href="/conexoes" data-secao="conexoes">Conexões</a>
   <a href="/config" data-secao="config">Config</a>
   <a href="/falhas" data-secao="falhas">Falhas</a>
@@ -222,9 +223,26 @@
   </section>
 
   <!-- ============ CONEXÕES ============ -->
+  <section class="secao" id="secao-filas">
+    <h1 class="t-pagina">Filas por grupo</h1>
+    <p class="sub">A cadência é de cada grupo, não do número. Um número em vários grupos
+      dispara mais no total — aqui você vê e ajusta grupo a grupo.</p>
+    <div id="filas"></div>
+  </section>
+
   <section class="secao" id="secao-conexoes">
     <h1 class="t-pagina">Conexões</h1>
     <p class="sub">Conecte o número do WhatsApp e escolha em quais grupos ele dispara.</p>
+    <div class="painel">
+      <div class="cabeca-painel">
+        <h3 class="t-titulo">Seus números</h3>
+        <button class="btn fantasma pequeno" data-acao="numeros">atualizar</button>
+      </div>
+      <p class="nota" style="margin-top:0">Cada número da sua Evolution e os grupos de que ele
+        participa. Marque ali mesmo o que dispara e o que é só observação.</p>
+      <div id="numeros"></div>
+    </div>
+
     <div class="painel">
       <h3 class="t-titulo">Conectar um número</h3>
       <p class="nota" style="margin-top:0"><b>Número novo:</b> preencha nome + função e faça 1 → 2 → 3.

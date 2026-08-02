@@ -112,6 +112,20 @@ export class EvolutionClient {
     return r.instance?.state ?? 'unknown';
   }
 
+  /**
+   * Todas as instâncias da Evolution, com estado da conexão e número do dono.
+   * `GET /instance/fetchInstances` devolve um array cru; o formato dos campos
+   * varia entre versões, então quem chama lê com tolerância (name/instanceName,
+   * connectionStatus/state, ownerJid/owner).
+   */
+  async fetchInstances(): Promise<Array<Record<string, unknown>>> {
+    const r = (await this.req('GET', '/instance/fetchInstances')) as
+      | Array<Record<string, unknown>>
+      | { instances?: Array<Record<string, unknown>> };
+    if (Array.isArray(r)) return r;
+    return r.instances ?? [];
+  }
+
   async fetchAllGroups(instance: string): Promise<Array<{ id: string; subject: string }>> {
     const r = (await this.req(
       'GET',

@@ -101,10 +101,10 @@ function falhou(alvoId, err) {
 const guardar = (fn, alvoId) => Promise.resolve().then(fn).catch((e) => falhou(alvoId, e));
 
 /* -------------------------- navegação -------------------------- */
-const SECOES = ['visao', 'feed', 'ciclos', 'inteligencia', 'grupos', 'conexoes', 'config', 'falhas'];
+const SECOES = ['visao', 'feed', 'ciclos', 'inteligencia', 'grupos', 'filas', 'conexoes', 'config', 'falhas'];
 const ROTA = {
   '/': 'visao', '/fila': 'feed', '/feed': 'feed', '/ciclos': 'ciclos',
-  '/inteligencia': 'inteligencia', '/grupos': 'grupos',
+  '/inteligencia': 'inteligencia', '/grupos': 'grupos', '/filas': 'filas',
   '/conexoes': 'conexoes', '/config': 'config', '/falhas': 'falhas',
 };
 let secaoAtual = 'visao';
@@ -129,7 +129,8 @@ function carregarSecao(s) {
   if (s === 'ciclos') guardar(carregarCiclos, 'ciclos');
   if (s === 'inteligencia') guardar(carregarInteligencia, 'travessia');
   if (s === 'grupos') { guardar(carregarGrupos, 'lista-grupos'); guardar(carregarIngestUrl, 'ingest-url'); }
-  if (s === 'conexoes') guardar(carregarCanais, 'lista-canais');
+  if (s === 'filas') guardar(carregarFilas, 'filas');
+  if (s === 'conexoes') { guardar(carregarCanais, 'lista-canais'); guardar(carregarNumeros, 'numeros'); }
   if (s === 'config') guardar(carregarConfig, 'cfg-status');
   if (s === 'falhas') guardar(carregarFalhas, 'falhas');
 }
@@ -889,6 +890,188 @@ async function carregarConfig() {
   $('evo-url').value = s.evolution_api_url || '';
 }
 
+/* ==================== SEUS NÚMEROS (Conexões) ==================== */
+
+async function carregarNumeros() {
+  const r = await api('/api/numeros');
+  const alvo = $('numeros');
+  if (r.evolutionConfigurada === false) {
+    alvo.innerHTML = vazio('Evolution ainda não configurada',
+      r.aviso || 'Preencha a URL e a chave em Config para o painel enxergar seus números.',
+      '<button class="btn" data-ir="config">Ir para Config</button>');
+    return;
+  }
+  if (r.error) { alvo.innerHTML = vazio('Não consegui falar com a Evolution', r.error); return; }
+  if (!r.numeros.length) {
+    alvo.innerHTML = vazio('Nenhum número na Evolution', 'Crie uma instância no bloco abaixo e leia o QR.');
+    return;
+  }
+  alvo.innerHTML = r.numeros.map((n) => {
+    const grupos = n.grupos.length
+      ? n.grupos.map((g) => {
+          /*
+           * A etiqueta diz o que ESTE grupo já é para o motor. Sem ela, saber se
+           * um grupo já dispara exigia comparar jid entre duas telas na mão.
+           */
+          let etq = '<span class="tag neutro">não ligado</span>';
+          if (g.papel === 'poster') {
+            etq = g.canalStatus === 'active'
+              ? '<span class="tag feito">dispara</span>'
+              : '<span class="tag neutro">disparo pausado</span>';
+          } else if (g.papel === 'listener') {
+            etq = '<span class="tag entrada">escuta</span>';
+          }
+          if (g.observado) etq += ' <span class="tag eles">observado (' + esc(g.observado.kind) + ')</span>';
+          const acao = g.canalId
+            ? '<button class="btn fantasma pequeno" data-fila-de="' + esc(g.canalId) + '">ver fila</button>'
+            : '<button class="btn fantasma pequeno" data-ligar="' + esc(g.jid) + '" data-inst="' + esc(n.instancia) + '" data-nome="' + esc(g.nome) + '">fazer disparar</button>';
+          return '<div class="linha-grupo"><div><b>' + esc(g.nome) + '</b> ' + etq +
+            '<div class="nota mono">' + esc(g.jid) + '</div></div>' +
+            '<div class="acoes compacta">' + acao + '</div></div>';
+        }).join('')
+      : '<div class="nota" style="padding:8px">' +
+        (n.conectada
+          ? (n.erroGrupos ? 'erro ao listar grupos: ' + esc(n.erroGrupos) : 'esse número não está em nenhum grupo')
+          : 'ligue o número para ver os grupos') + '</div>';
+    return '<details class="painel dobravel numero"' + (n.conectada ? ' open' : '') + '>' +
+      '<summary><span class="led ' + (n.conectada ? 'on' : 'off') + '"></span> <b>' + esc(n.instancia) + '</b> ' +
+      '<span class="tag ' + (n.conectada ? 'feito' : 'neutro') + '">' + (n.conectada ? 'conectado' : esc(String(n.estado))) + '</span> ' +
+      '<span class="nota mono">' + (n.numero ? '+' + esc(n.numero) : 'sem número') + '</span> ' +
+      '<span class="nota">' + n.grupos.length + ' grupo(s)</span></summary>' +
+      '<div class="lista-grupos-num">' + grupos + '</div></details>';
+  }).join('');
+}
+
+/* ==================== FILAS POR GRUPO ==================== */
+
+const seg = (s) => {
+  const n = Number(s);
+  if (!Number.isFinite(n)) return '—';
+  if (n < 60) return n + 's';
+  const m = Math.round(n / 60);
+  return m < 60 ? m + ' min' : (m / 60).toFixed(1) + 'h';
+};
+
+/** "em 12 min" em vez de um horário absoluto — é o que o dono quer saber. */
+function daquiA(iso) {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return null;
+  const d = Math.round((t - Date.now()) / 1000);
+  if (d <= 0) return 'agora';
+  return 'em ' + seg(d);
+}
+
+async function carregarFilas() {
+  const canais = await api('/api/channels');
+  const posters = (canais || []).filter((c) => c.role === 'poster');
+  const alvo = $('filas');
+  if (!posters.length) {
+    alvo.innerHTML = vazio('Nenhum grupo recebendo ainda',
+      'O motor captura e mede preço, mas sem um grupo de destino nada é entregue. Conecte um número e escolha o grupo.',
+      '<button class="btn" data-ir="conexoes">Ir para Conexões</button>');
+    return;
+  }
+  const filas = await Promise.all(posters.map((c) =>
+    api('/api/channels/' + c.id + '/fila')
+      .catch((e) => ({ erro: e.message, canal: { id: c.id, nome: c.display_name } }))));
+  alvo.innerHTML = filas.map(desenharFila).join('');
+}
+
+function desenharFila(f) {
+  if (f.erro) {
+    return '<div class="painel"><h3 class="t-titulo">' + esc(f.canal && f.canal.nome || 'canal') + '</h3>' +
+      '<div class="nota err">não consegui ler a fila: ' + esc(f.erro) + '</div></div>';
+  }
+  const c = f.canal;
+  const cad = f.cadencia;
+  const pausado = c.status !== 'active';
+  /*
+   * O MOTIVO vem antes do horário. "próximo em 6h" com 19 ofertas na fila
+   * parece defeito; "teto diário atingido (250 de 250)" é a mesma informação
+   * dizendo que está funcionando exatamente como foi configurado.
+   */
+  const quando = pausado
+    ? '<span class="tag neutro">pausado</span>'
+    : (f.motivoParado
+        ? '<span class="tag alerta-tag">' + esc(f.motivoParado) + '</span>'
+        : '<span class="tag feito">próximo ' + esc(daquiA(f.proximoEm) || '—') + '</span>');
+
+  const proximas = f.proximas.length
+    ? '<div class="poco fila-proximas">' + f.proximas.map((o, i) =>
+        '<div class="linha-fila"><span class="pos">' + (i + 1) + '</span>' +
+        (o.image_url ? '<img src="' + esc(o.image_url) + '" alt="" loading="lazy" />' : '<span class="sem-img"></span>') +
+        '<div class="corpo"><div class="t-dado">' + esc(o.title || '(sem título)') + '</div>' +
+        '<div class="meta">' + brl(o.price) +
+        (o.commission_brl ? ' · ganho ' + brl(o.commission_brl) : '') +
+        (o.is_priority ? ' <span class="tag alerta-tag">fura-fila</span>' : '') +
+        '</div></div></div>').join('') + '</div>'
+    : '<div class="nota" style="padding:10px">Nada esperando. O motor captura a cada 30 minutos.</div>';
+
+  const campo = (rot, campoId, tipo, valor, min, max) =>
+    '<div><label>' + rot + '</label><input type="' + tipo + '" ' +
+    (tipo === 'number' ? 'min="' + min + '" max="' + max + '" ' : '') +
+    'value="' + esc(String(valor)) + '" data-cad="' + c.id + '" data-campo="' + campoId + '" /></div>';
+
+  return '<details class="painel dobravel fila-canal" open>' +
+    '<summary><b>' + esc(c.nome || c.grupo || 'grupo') + '</b> ' + quando +
+    ' <span class="nota">' + f.naFila + ' na fila · ' + f.enviadasHoje + ' de ' + cad.tetoDiario + ' hoje</span></summary>' +
+
+    '<div class="grade-fila">' +
+      '<div class="placa"><span class="rot">na fila</span><span class="num">' + f.naFila + '</span></div>' +
+      '<div class="placa feito"><span class="rot">enviadas hoje</span><span class="num">' + f.enviadasHoje + '</span><span class="rot">de ' + cad.tetoDiario + '</span></div>' +
+      '<div class="placa"><span class="rot">intervalo</span><span class="num">' + seg(cad.dripMinSec) + '–' + seg(cad.dripMaxSec) + '</span><span class="rot">+ ' + seg(cad.jitterMinSec) + '–' + seg(cad.jitterMaxSec) + ' de jitter</span></div>' +
+      '<div class="placa"><span class="rot">silêncio</span><span class="num">' + esc(String(cad.silencioInicio).slice(0, 5)) + '–' + esc(String(cad.silencioFim).slice(0, 5)) + '</span><span class="rot">' + esc(cad.fuso) + '</span></div>' +
+    '</div>' +
+
+    '<div class="nota">grupo <span class="mono">' + esc(c.grupo || '—') + '</span> · número <span class="mono">' + esc(c.instancia) + '</span> ' +
+    (f.ultimoEnvio ? '· último envio ' + esc(dataHora(f.ultimoEnvio)) : '· nunca enviou') + '</div>' +
+
+    '<h4 class="secao-titulo">próximas a sair, nesta ordem</h4>' + proximas +
+
+    '<details class="dobravel ajuste"><summary><span class="t-dado">ajustar a cadência deste grupo</span></summary>' +
+    '<p class="nota" style="margin-top:0">Vale a partir do próximo disparo — o que já está agendado mantém o intervalo anterior.</p>' +
+    '<div class="grade">' +
+      campo('Intervalo mínimo (min)', 'dripMin', 'number', Math.round(cad.dripMinSec / 60), 1, 1440) +
+      campo('Intervalo máximo (min)', 'dripMax', 'number', Math.round(cad.dripMaxSec / 60), 1, 1440) +
+      campo('Jitter mínimo (min)', 'jitMin', 'number', Math.round(cad.jitterMinSec / 60), 0, 60) +
+      campo('Jitter máximo (min)', 'jitMax', 'number', Math.round(cad.jitterMaxSec / 60), 0, 60) +
+      campo('Teto por dia', 'cap', 'number', cad.tetoDiario, 1, 1000) +
+      campo('Silêncio começa', 'qStart', 'time', String(cad.silencioInicio).slice(0, 5)) +
+      campo('Silêncio termina', 'qEnd', 'time', String(cad.silencioFim).slice(0, 5)) +
+    '</div>' +
+    '<div class="acoes" style="display:flex;gap:8px;margin-top:12px">' +
+      '<button class="btn" data-salvar-cad="' + c.id + '">Salvar cadência</button>' +
+      '<button class="btn fantasma" data-canal="' + c.id + '" data-op="' + (pausado ? 'ativar' : 'pausar') + '">' + (pausado ? 'ativar' : 'pausar') + ' este grupo</button>' +
+    '</div>' +
+    '<div class="nota" id="cad-msg-' + c.id + '"></div>' +
+    '</details></details>';
+}
+
+async function salvarCadencia(id) {
+  const v = (campoId) => {
+    const el = document.querySelector('[data-cad="' + id + '"][data-campo="' + campoId + '"]');
+    return el ? el.value : '';
+  };
+  try {
+    const r = await enviar('/api/channels/' + id, 'PATCH', {
+      cadencia: {
+        dripMinSec: Number(v('dripMin')) * 60,
+        dripMaxSec: Number(v('dripMax')) * 60,
+        jitterMinSec: Number(v('jitMin')) * 60,
+        jitterMaxSec: Number(v('jitMax')) * 60,
+        tetoDiario: Number(v('cap')),
+        silencioInicio: v('qStart'),
+        silencioFim: v('qEnd'),
+      },
+    });
+    msg('cad-msg-' + id, r.aviso || 'cadência salva', 'ok');
+    carregarFilas();
+  } catch (e) {
+    msg('cad-msg-' + id, e.message, 'err');
+  }
+}
+
 /* ==================== FALHAS ==================== */
 
 /*
@@ -962,12 +1145,38 @@ document.addEventListener('click', async (ev) => {
     return;
   }
 
-  const alvo = ev.target.closest('[data-acao],[data-ir],[data-oferta],[data-canal],[data-grupo],[data-post]');
+  // Salvar cadência sai antes: é o único que lê vários campos de uma vez.
+  const btnCad = ev.target.closest('[data-salvar-cad]');
+  if (btnCad) return salvarCadencia(btnCad.dataset.salvarCad);
+
+  const alvo = ev.target.closest('[data-acao],[data-ir],[data-oferta],[data-canal],[data-grupo],[data-post],[data-fila-de],[data-ligar]');
   if (!alvo) return;
 
   if (alvo.dataset.ir) return abrir(alvo.dataset.ir, true);
 
+  /*
+   * "ver fila" leva para a aba Filas. Ela mostra TODOS os grupos; abrir só um
+   * exigiria estado de seleção que ninguém pediu, e a tela já é dobrável.
+   */
+  if (alvo.dataset.filaDe) return abrir('filas', true);
+
+  // "fazer disparar": registra o grupo como canal direto da lista do número.
+  if (alvo.dataset.ligar) {
+    try {
+      await enviar('/api/channels', 'POST', {
+        role: 'poster',
+        instance_ref: alvo.dataset.inst,
+        target_ref: alvo.dataset.ligar,
+        display_name: alvo.dataset.nome,
+      });
+      await carregarNumeros();
+      carregarCanais();
+    } catch (e) { alert('não deu: ' + e.message); }
+    return;
+  }
+
   const acao = alvo.dataset.acao;
+  if (acao === 'numeros') return carregarNumeros();
   if (acao === 'recarregar') return recarregar();
   if (acao === 'ciclo') return buscarAgora();
   if (acao === 'limpar-filtros') return limparFiltros();
@@ -984,6 +1193,14 @@ document.addEventListener('click', async (ev) => {
     }
     if (alvo.dataset.canal) {
       const id = alvo.dataset.canal;
+      // A aba Filas rotula o botão em português ("pausar"/"ativar"); a API quer
+      // o estado final. Traduz aqui em vez de duplicar o texto do botão.
+      if (alvo.dataset.op === 'pausar' || alvo.dataset.op === 'ativar') {
+        await enviar('/api/channels/' + id, 'PATCH', {
+          status: alvo.dataset.op === 'pausar' ? 'paused' : 'active',
+        });
+        return carregarFilas();
+      }
       if (alvo.dataset.op === 'remover') {
         if (!confirm('Parar de disparar nesse grupo e remover o canal?')) return;
         await api('/api/channels/' + id, { method: 'DELETE' });

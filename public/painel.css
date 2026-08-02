@@ -139,8 +139,12 @@ a { color: var(--nos); text-underline-offset: 3px; }
 
 .sub { color: var(--ink3); font-size: 14px; margin: 0 0 24px; max-width: 62ch; }
 
-/* Eyebrow de seção: a régua encosta no texto e some no fim. */
-h2.secao-titulo {
+/* Eyebrow de seção: a régua encosta no texto e some no fim.
+   Ancorado na CLASSE, não em `h2`: o nível do título é decisão de hierarquia do
+   documento (dentro de um painel o certo é h4), e prender o estilo à etiqueta
+   fazia o mesmo rótulo aparecer ora como sobrancelha mono, ora como negrito
+   sans — dois visuais para a mesma coisa, na mesma tela. */
+.secao-titulo {
   font-family: var(--mono);
   font-size: 10.5px;
   letter-spacing: 0.14em;
@@ -152,7 +156,7 @@ h2.secao-titulo {
   gap: 12px;
   font-weight: 500;
 }
-h2.secao-titulo::after {
+.secao-titulo::after {
   content: "";
   flex: 1;
   height: 1px;
@@ -584,3 +588,80 @@ tr.linha-pulada:hover td { opacity: 1; }
 /* Post de outra loja: presente na linha do tempo, mas visivelmente fora do
    jogo — nunca poderia casar contra a API da Shopee. */
 .travessia .tick-eles.outra-loja { opacity: 0.35; stroke-width: 2; }
+
+/* ==================== SEUS NÚMEROS E FILAS ==================== */
+
+/*
+ * Um número é um contêiner de grupos, então vira `<details>` com cabeçalho
+ * informativo — não um card fechado. Instância desligada fica recolhida: não há
+ * grupo para ver ali, e ocupar altura com isso empurra o que interessa para
+ * baixo da dobra.
+ */
+.dobravel > summary {
+  cursor: pointer; list-style: none; display: flex; align-items: center;
+  gap: 9px; flex-wrap: wrap;
+}
+.dobravel > summary::-webkit-details-marker { display: none; }
+.dobravel > summary::before {
+  content: '▸'; color: var(--ink3); font-size: 11px; transition: transform 0.12s;
+}
+.dobravel[open] > summary::before { transform: rotate(90deg); }
+/*
+ * Instância desligada NÃO pisca. O LED pulsante é o único elemento animado do
+ * painel e significa "algo está errado, olhe agora" (ver o comentário do
+ * `.led.off` global). Um número que o dono desligou de propósito não é
+ * incidente — é estado. Sem este reset ele herdava o vermelho pulsante e
+ * gritava por atenção que não precisa.
+ */
+.numero .led.off { background: var(--ink3); box-shadow: none; animation: none; }
+
+/* Título e ação na mesma linha — a ação é secundária e não merece uma linha. */
+.cabeca-painel {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+}
+.cabeca-painel .t-titulo { margin: 0; }
+
+.linha-grupo {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px; border-top: 1px solid var(--line);
+}
+.linha-grupo:first-child { border-top: 0; }
+.lista-grupos-num { margin-top: 10px; background: var(--well); border-radius: var(--r-sm); }
+
+/* Quatro números que respondem "por que ainda não saiu" de relance. */
+.grade-fila {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px; margin: 14px 0 12px;
+}
+.grade-fila .placa { display: flex; flex-direction: column; gap: 2px; }
+.grade-fila .placa .num { font-family: var(--titulo); font-size: 22px; font-weight: 700; }
+.grade-fila .placa .rot {
+  font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.07em; color: var(--ink3);
+}
+
+/*
+ * A ORDEM é o dado aqui — por isso a posição vem numerada e fixa à esquerda.
+ * Foto menor que no Feed (48 contra 104): ali ela ajuda a julgar a oferta; aqui
+ * só serve para reconhecer, e altura demais esconderia o resto da fila.
+ */
+.fila-proximas { padding: 0; }
+.linha-fila {
+  display: flex; align-items: center; gap: 11px; padding: 9px 12px;
+  border-top: 1px solid var(--line);
+}
+.linha-fila:first-child { border-top: 0; }
+.linha-fila .pos {
+  font-family: var(--mono); font-size: 11px; color: var(--ink3);
+  min-width: 18px; text-align: right;
+}
+.linha-fila img, .linha-fila .sem-img {
+  width: 48px; height: 48px; border-radius: var(--r-sm); object-fit: cover;
+  background: var(--well); flex: none;
+}
+.linha-fila .corpo { min-width: 0; }
+.linha-fila .t-dado { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ajuste { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.ajuste > summary { color: var(--ink2); }

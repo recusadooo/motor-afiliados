@@ -6,7 +6,8 @@ import { log } from './logger';
 import { query, queryOne, tx } from './db';
 import { handleEvolutionWebhook } from './whatsapp/listener';
 import { breakerState } from './resilience/breaker';
-import { removeDripJob } from './queue/scheduler';
+import { removeDripJob, tamanhoDaFila, proximasDaFila } from './queue/scheduler';
+import { HttpError } from './resilience/retry';
 import { getEvolution, GROUPS_INSTANCE_SETTINGS } from './whatsapp/evolution';
 import { normalizarTelefoneBR } from './util';
 import { settingsStatus, setSetting, SETTING_KEYS } from './settings';
@@ -594,6 +595,158 @@ app.post('/api/instances/:name/webhook', wrap(async (req: Request, res: Response
   }
 }));
 
+/**
+ * SEUS NÚMEROS — cada instância da Evolution, o estado da conexão, e os grupos
+ * de que ela participa, já cruzados com o que está registrado aqui.
+ *
+ * Junta as duas metades que antes só existiam separadas: a Evolution sabe quais
+ * grupos o número participa, e o app sabe em quais ele dispara/observa. Sem o
+ * cruzamento, descobrir "esse grupo já está ligado?" exigia comparar jid na mão
+ * entre duas telas.
+ */
+app.get('/api/numeros', wrap(async (_req: Request, res: Response) => {
+  const evo = await getEvolution();
+  const canais = await query<{
+    id: string; role: string; instance_ref: string; target_ref: string | null;
+    display_name: string | null; status: string;
+  }>(`SELECT id, role, instance_ref, target_ref, display_name, status FROM channels`);
+  const observados = await query<{ group_jid: string; display_name: string | null; kind: string; is_active: boolean }>(
+    `SELECT group_jid, display_name, kind, is_active FROM intel_groups`,
+  );
+  const porJid = new Map(canais.filter((c) => c.target_ref).map((c) => [c.target_ref!, c]));
+  const obsPorJid = new Map(observados.map((o) => [o.group_jid, o]));
+
+  if (!evo) {
+    return res.json({
+      evolutionConfigurada: false,
+      aviso: 'configure a Evolution em Config para ver seus números e grupos',
+      numeros: [],
+      canaisSemInstancia: canais,
+    });
+  }
+
+  let instancias: Array<Record<string, unknown>> = [];
+  try {
+    instancias = await evo.fetchInstances();
+  } catch (err) {
+    return res.status(502).json({
+      evolutionConfigurada: true,
+      error: err instanceof Error ? err.message : String(err),
+      numeros: [],
+    });
+  }
+
+  const numeros = [];
+  for (const inst of instancias) {
+    const nome = String(inst.name ?? inst.instanceName ?? '');
+    const conectada = String(inst.connectionStatus ?? inst.state ?? '') === 'open';
+    /*
+     * Só busca grupos de instância CONECTADA. Pedir os grupos de uma instância
+     * desligada faz a Evolution demorar até estourar o tempo e devolver erro —
+     * com 4 instâncias e 3 desligadas, a tela levaria minutos para carregar por
+     * causa de dados que não existem.
+     */
+    let grupos: Array<{ id: string; subject: string }> = [];
+    let erroGrupos: string | undefined;
+    if (conectada) {
+      try {
+        grupos = await evo.fetchAllGroups(nome);
+      } catch (err) {
+        erroGrupos = err instanceof Error ? err.message : String(err);
+      }
+    }
+    numeros.push({
+      instancia: nome,
+      conectada,
+      estado: inst.connectionStatus ?? inst.state ?? 'desconhecido',
+      numero: String(inst.ownerJid ?? inst.owner ?? '').replace(/\D/g, '') || null,
+      perfil: inst.profileName ?? null,
+      erroGrupos,
+      grupos: grupos.map((g) => {
+        const canal = porJid.get(g.id);
+        const obs = obsPorJid.get(g.id);
+        return {
+          jid: g.id,
+          nome: g.subject,
+          canalId: canal?.id ?? null,
+          papel: canal?.role ?? null,
+          canalStatus: canal?.status ?? null,
+          observado: obs ? { kind: obs.kind, ativo: obs.is_active } : null,
+        };
+      }),
+    });
+  }
+  res.json({ evolutionConfigurada: true, numeros });
+}));
+
+/**
+ * A FILA DESTE GRUPO — por que a próxima oferta ainda não saiu, e quando sai.
+ *
+ * A cadência é POR CANAL (colunas da tabela `channels`), então "a fila" só faz
+ * sentido por grupo. Um número em vários grupos dispara mais no total, e sem
+ * esta tela não havia como perceber isso.
+ */
+app.get('/api/channels/:id/fila', wrap(async (req: Request, res: Response) => {
+  const id = req.params.id!;
+  const ch = await queryOne<{
+    id: string; display_name: string | null; target_ref: string | null; instance_ref: string;
+    role: string; status: string; timezone: string; daily_cap: number;
+    drip_min_sec: number; drip_max_sec: number; jitter_min_sec: number; jitter_max_sec: number;
+    quiet_start: string; quiet_end: string;
+  }>(`SELECT * FROM channels WHERE id = $1`, [id]);
+  if (!ch) return res.status(404).json({ error: 'canal não encontrado' });
+
+  const [naFila, proximas, agenda, hoje, ultimo] = await Promise.all([
+    tamanhoDaFila(id),
+    proximasDaFila(id, 8),
+    queryOne<{ next_run_at: string | null; last_run_at: string | null; state: string }>(
+      `SELECT next_run_at, last_run_at, state FROM schedules WHERE channel_id = $1`, [id],
+    ),
+    queryOne<{ n: string }>(
+      `SELECT count(*) AS n FROM send_logs
+        WHERE channel_id = $1 AND status = 'sent'
+          AND sent_at >= (date_trunc('day', now() AT TIME ZONE $2) AT TIME ZONE $2)`,
+      [id, ch.timezone],
+    ),
+    queryOne<{ sent_at: string | null; title: string | null }>(
+      `SELECT s.sent_at, o.title FROM send_logs s
+         LEFT JOIN offers o ON o.id = s.offer_id
+        WHERE s.channel_id = $1 AND s.status = 'sent'
+        ORDER BY s.sent_at DESC LIMIT 1`, [id],
+    ),
+  ]);
+
+  const enviadasHoje = Number(hoje?.n ?? 0);
+  /*
+   * Diz POR QUE não vai sair agora, em vez de só mostrar um horário. Sem isto,
+   * "próximo às 03:40" com a fila cheia parece defeito — e pode ser janela de
+   * silêncio funcionando exatamente como configurada.
+   */
+  let motivoParado: string | null = null;
+  if (ch.status !== 'active') motivoParado = 'canal pausado';
+  else if (enviadasHoje >= ch.daily_cap) motivoParado = `teto diário atingido (${enviadasHoje} de ${ch.daily_cap})`;
+  else if (naFila === 0) motivoParado = 'nada na fila — o motor captura a cada 30 min';
+
+  res.json({
+    canal: {
+      id: ch.id, nome: ch.display_name, grupo: ch.target_ref,
+      instancia: ch.instance_ref, papel: ch.role, status: ch.status,
+    },
+    cadencia: {
+      dripMinSec: ch.drip_min_sec, dripMaxSec: ch.drip_max_sec,
+      jitterMinSec: ch.jitter_min_sec, jitterMaxSec: ch.jitter_max_sec,
+      silencioInicio: ch.quiet_start, silencioFim: ch.quiet_end,
+      tetoDiario: ch.daily_cap, fuso: ch.timezone,
+    },
+    naFila, enviadasHoje, motivoParado,
+    proximoEm: agenda?.next_run_at ?? null,
+    ultimaRodada: agenda?.last_run_at ?? null,
+    ultimoEnvio: ultimo?.sent_at ?? null,
+    ultimoTitulo: ultimo?.title ?? null,
+    proximas,
+  });
+}));
+
 // Lista canais cadastrados.
 app.get('/api/channels', wrap(async (_req: Request, res: Response) => {
   res.json(
@@ -649,13 +802,71 @@ app.post('/api/channels/bulk', wrap(async (req: Request, res: Response) => {
 
 // Pausar / reativar um canal (liga/desliga o disparo naquele grupo).
 app.patch('/api/channels/:id', wrap(async (req: Request, res: Response) => {
-  const status = req.body?.status;
-  if (!['active', 'paused'].includes(status)) {
-    return res.status(400).json({ error: 'status deve ser active ou paused' });
+  const id = req.params.id!;
+  const b = req.body ?? {};
+
+  // ---- pausar / ativar ----
+  if (b.status !== undefined) {
+    if (!['active', 'paused'].includes(b.status)) {
+      return res.status(400).json({ error: 'status deve ser active ou paused' });
+    }
+    await query(`UPDATE channels SET status = $1 WHERE id = $2`, [b.status, id]);
+    if (b.status !== 'active') await removeDripJob(id);
+    if (b.cadencia === undefined) return res.json({ ok: true });
   }
-  await query(`UPDATE channels SET status = $1 WHERE id = $2`, [status, req.params.id]);
-  if (status !== 'active') await removeDripJob(req.params.id!);
-  res.json({ ok: true });
+
+  // ---- cadência do canal ----
+  const c = b.cadencia;
+  if (c === undefined) return res.status(400).json({ error: 'nada para atualizar' });
+
+  const num = (v: unknown, min: number, max: number, nome: string): number => {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < min || n > max) {
+      throw new HttpError(400, `${nome} deve ser um número entre ${min} e ${max}`);
+    }
+    return Math.round(n);
+  };
+  const hora = (v: unknown, nome: string): string => {
+    const s = String(v ?? '');
+    if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(s)) {
+      throw new HttpError(400, `${nome} deve estar no formato HH:MM`);
+    }
+    return `${s}:00`;
+  };
+
+  try {
+    const dripMin = num(c.dripMinSec, 30, 86400, 'intervalo mínimo');
+    const dripMax = num(c.dripMaxSec, 30, 86400, 'intervalo máximo');
+    const jitMin = num(c.jitterMinSec, 0, 3600, 'jitter mínimo');
+    const jitMax = num(c.jitterMaxSec, 0, 3600, 'jitter máximo');
+    const cap = num(c.tetoDiario, 1, 1000, 'teto diário');
+    /*
+     * min > max faria `randInt(min, max)` devolver lixo e o gotejamento passaria
+     * a agendar em intervalo negativo — ou seja, rajada. É exatamente o
+     * comportamento que a cadência existe para impedir, então é 400, não um
+     * ajuste silencioso: trocar os valores por trás seria o painel decidindo
+     * sozinho algo que muda o risco de ban.
+     */
+    if (dripMin > dripMax) throw new HttpError(400, 'o intervalo mínimo não pode ser maior que o máximo');
+    if (jitMin > jitMax) throw new HttpError(400, 'o jitter mínimo não pode ser maior que o máximo');
+
+    await query(
+      `UPDATE channels SET drip_min_sec=$1, drip_max_sec=$2, jitter_min_sec=$3,
+              jitter_max_sec=$4, daily_cap=$5, quiet_start=$6, quiet_end=$7
+        WHERE id=$8`,
+      [dripMin, dripMax, jitMin, jitMax, cap,
+       hora(c.silencioInicio, 'início do silêncio'), hora(c.silencioFim, 'fim do silêncio'), id],
+    );
+    /*
+     * O job em voo já está agendado com o intervalo ANTIGO — ele só lê as
+     * colunas na próxima rodada. Sem avisar, o dono muda de 30min para 5min,
+     * não vê nada acontecer por meia hora e conclui que a tela não funciona.
+     */
+    res.json({ ok: true, aviso: 'vale a partir do próximo disparo; o que já está agendado mantém o intervalo anterior' });
+  } catch (err) {
+    if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+    throw err;
+  }
 }));
 
 // Remover um canal (para de disparar naquele grupo e apaga o histórico dele).

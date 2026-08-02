@@ -1,6 +1,6 @@
 import { Queue } from 'bullmq';
 import type { NormalizedOffer } from '../types';
-import { makeRedis } from '../redis';
+import { makeRedis, derrubarRedis } from '../redis';
 
 export const QUEUE_PROCESS = 'process';
 export const QUEUE_DRIP = 'drip';
@@ -54,4 +54,25 @@ export function getIntelQueue(): Queue {
     intelQueue = new Queue(QUEUE_INTEL, { connection: makeRedis() });
   }
   return intelQueue;
+}
+
+/**
+ * Fecha as conexões de fila que foram abertas.
+ *
+ * Existe porque o ioredis reconecta INDEFINIDAMENTE: um processo que tocou
+ * qualquer fila nunca termina sozinho, mesmo com todo o trabalho concluído.
+ * Em produção isso é irrelevante (os serviços são de vida longa), mas qualquer
+ * comando ou teste que importe este módulo fica pendurado até o timeout — o
+ * que faz uma suíte VERDE ser relatada como falha do arquivo.
+ */
+export async function closeQueues(): Promise<void> {
+  const filas = [processQueue, dripQueue, captureQueue, intelQueue].filter(Boolean);
+  processQueue = dripQueue = captureQueue = intelQueue = null;
+  // `close()` limpo primeiro, com prazo — ele ESPERA o Redis responder, e com o
+  // Redis fora do ar esperaria para sempre.
+  await Promise.race([
+    Promise.allSettled(filas.map((q) => q!.close())),
+    new Promise((r) => setTimeout(r, 2000)),
+  ]);
+  derrubarRedis(); // o que sobrou cai na marra
 }

@@ -78,6 +78,52 @@ async function setNextRun(channelId: string, ms: number): Promise<void> {
 /* ---------- envio de uma oferta ---------- */
 
 /**
+ * O QUE ESTE CANAL AINDA PODE RECEBER — condição única, usada pelo claim do
+ * worker E pelo painel.
+ *
+ * Está aqui, exportada, em vez de repetida na API por um motivo prático: são
+ * duas leituras da mesma verdade ("o que falta mandar para este grupo"), e
+ * consultas gêmeas divergem na primeira vez que alguém mexe numa. Um painel
+ * que mostra uma fila diferente da que o worker consome é pior que não mostrar
+ * fila nenhuma — o dono passa a confiar num número errado.
+ *
+ * A ORDEM também importa e é a mesma do claim: fura-fila primeiro, depois
+ * prioridade, depois chegada. É assim que o painel consegue dizer "a próxima a
+ * sair é esta".
+ */
+const SQL_ELEGIVEL = `
+  FROM offers o
+   WHERE o.status = 'approved'
+     AND NOT EXISTS (
+       SELECT 1 FROM send_logs s
+        WHERE s.channel_id = $1 AND s.offer_dedup_key = o.dedup_key
+          AND (s.status IN ('sent','claimed') OR s.attempt >= $2))`;
+
+const ORDEM_ELEGIVEL = ` ORDER BY o.is_priority DESC, o.priority DESC, o.created_at`;
+
+/** Quantas ofertas ainda faltam sair neste canal. */
+export async function tamanhoDaFila(channelId: string | number): Promise<number> {
+  const r = await query<{ n: string }>(
+    `SELECT count(*) AS n ${SQL_ELEGIVEL}`,
+    [channelId, MAX_SEND_ATTEMPTS],
+  );
+  return Number(r[0]?.n ?? 0);
+}
+
+/** As próximas da fila deste canal, na ordem exata em que o worker vai pegá-las. */
+export async function proximasDaFila(
+  channelId: string | number,
+  limite = 8,
+): Promise<Array<Record<string, unknown>>> {
+  return query(
+    `SELECT o.id, o.title, o.price, o.image_url, o.is_priority, o.priority,
+            o.commission_brl, o.created_at
+     ${SQL_ELEGIVEL} ${ORDEM_ELEGIVEL} LIMIT ${Math.max(1, Math.min(50, limite))}`,
+    [channelId, MAX_SEND_ATTEMPTS],
+  );
+}
+
+/**
  * Exportada para ser TESTÁVEL. Era interna, e por isso a última perna do
  * pipeline — o disparo de verdade, com claim idempotente em `send_logs` — era
  * a única que nunca tinha sido exercitada: testá-la parecia exigir um número
@@ -86,13 +132,8 @@ async function setNextRun(channelId: string, ms: number): Promise<void> {
 export async function dispatchOne(channel: ChannelRow): Promise<boolean> {
   const claimed = await tx(async (c) => {
     const r = await c.query<OfferRow & { attempt?: number }>(
-      `SELECT o.* FROM offers o
-        WHERE o.status = 'approved'
-          AND NOT EXISTS (
-            SELECT 1 FROM send_logs s
-             WHERE s.channel_id = $1 AND s.offer_dedup_key = o.dedup_key
-               AND (s.status IN ('sent','claimed') OR s.attempt >= $2))
-        ORDER BY o.is_priority DESC, o.priority DESC, o.created_at
+      // MESMA condição e MESMA ordem que o painel mostra (SQL_ELEGIVEL acima).
+      `SELECT o.* ${SQL_ELEGIVEL} ${ORDEM_ELEGIVEL}
         LIMIT 1
         FOR UPDATE SKIP LOCKED`,
       [channel.id, MAX_SEND_ATTEMPTS],
@@ -229,8 +270,33 @@ export async function ensureDripJobs(): Promise<number> {
 
 /** Remove o job de gotejamento de um canal (ao pausar/remover). */
 export async function removeDripJob(channelId: string): Promise<void> {
-  const job = await getDripQueue().getJob(`drip-${channelId}`);
-  if (job) await job.remove().catch(() => {});
+  /*
+   * BEST-EFFORT, com prazo. Tirar o job é OTIMIZAÇÃO, não a pausa em si: quem
+   * pausa de verdade é `channels.status`, e o `tick()` relê essa coluna e
+   * reagenda sem enviar nada quando o canal não está ativo. O job só existe
+   * para não ficar acordando à toa.
+   *
+   * Por que o prazo: o ioredis tenta reconectar INDEFINIDAMENTE. Sem isto, com
+   * o Redis fora do ar a rota de pausar não devolvia — pendurava a requisição
+   * para sempre, segurando a conexão. Descoberto rodando o teste da fila num
+   * ambiente sem Redis, que é exatamente o cenário de Redis indisponível.
+   * Falhar aqui é aceitável; deixar o painel travado, não.
+   */
+  const prazo = new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 3000));
+  const tarefa = (async () => {
+    const job = await getDripQueue().getJob(`drip-${channelId}`);
+    if (job) await job.remove().catch(() => {});
+    return 'ok' as const;
+  })();
+  const r = await Promise.race([tarefa, prazo]).catch((e) => e as Error);
+  if (r !== 'ok') {
+    log.warn('não consegui remover o job de gotejamento — a pausa vale mesmo assim', {
+      channelId,
+      motivo: r === 'timeout' ? 'redis não respondeu em 3s' : String(r),
+    });
+  }
+  // A promessa perdedora não pode virar unhandledRejection e derrubar o processo.
+  tarefa.catch(() => {});
 }
 
 /**
