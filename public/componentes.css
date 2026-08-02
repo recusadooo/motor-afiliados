@@ -322,8 +322,7 @@
 /* ---------- campo de assunto do grupo ----------
    Select + "nova" lado a lado: cadastrar é a exceção, então o botão fica
    discreto ao lado da escolha normal, não como ação de primeira linha. */
-.campo-etiqueta { display: flex; gap: 6px; align-items: center; }
-.campo-etiqueta select { font-size: 12px; padding: 5px 8px; min-width: 130px; }
+/* (a regra deste campo está mais abaixo, junto com a explicação da largura) */
 
 /* O campo dentro do diálogo herda o input do tema, só ganha respiro. */
 .dialogo input { margin-top: 4px; }
@@ -341,3 +340,107 @@
 }
 .cartao-numero .grade-fila { margin: 12px 0 0; }
 .cartao-numero .lista-grupos-num { margin-top: 10px; background: var(--well, #EAEAE5); }
+
+/* ============================================================
+   CAMPOS QUE MOSTRAM O CONTEÚDO INTEIRO
+   ============================================================
+   O select de assunto vinha cortando o texto ("Acessórios par…")
+   porque herdava uma largura mínima pensada para rótulo curto.
+   O teto de nome é 30 caracteres, então a largura é dimensionada
+   em `ch` — a unidade do PRÓPRIO caractere da fonte — para caber
+   30 sem cortar e sem esticar a linha além do necessário.
+   ============================================================ */
+/*
+ * LARGURA EM PIXEL, não em `ch`.
+ *
+ * `ch` parecia mais elegante — acompanha a tipografia — mas depende da fonte
+ * JÁ ESTAR CARREGADA quando o valor é computado. Com a Martian Mono vindo do
+ * Google Fonts, o primeiro cálculo usa a fonte de fallback (bem mais estreita)
+ * e o campo nasce curto; o texto aparecia cortado com reticências mesmo com a
+ * regra "certa" no CSS.
+ *
+ * A conta: 30 caracteres × ~8,4px (avanço da Martian Mono a 12px) = 252px, mais
+ * 16px de padding e ~24px da seta do select = 292px. Arredondado para 296.
+ */
+.campo-etiqueta { display: flex; gap: 6px; align-items: center; flex: none; }
+
+/*
+ * Os 296px são do SELECT, não do contêiner. Foi o erro da primeira tentativa:
+ * `.campo-etiqueta` também abriga o botão "+ nova", então dar 296px ao pai
+ * deixava ~175px para o texto e ele continuava cortado — a medida estava certa
+ * e aplicada no elemento errado.
+ */
+.campo-etiqueta select {
+  font-size: 12px;
+  padding: 5px 8px;
+  /*
+   * `width` direto, não `flex-basis`. O <select> tem tamanho intrínseco (a
+   * opção mais larga) e o navegador o respeitava por cima da base flex — a
+   * regra estava no arquivo e o campo continuava curto. Largura explícita não
+   * deixa essa margem.
+   */
+  flex: none;
+  width: 296px;
+  min-width: 0;
+  /*
+   * SEM `max-width: 100%`. Medido: ele resolvia para 168px.
+   *
+   * O motivo é uma referência circular — o pai `.campo-etiqueta` é `flex:none`
+   * (largura vem do conteúdo) e o `100%` do filho é medido contra esse pai, que
+   * por sua vez esperava o filho. O navegador resolve pelo shrink-to-fit e
+   * congela um teto menor que a largura pedida. A regra parecia inofensiva e
+   * era a causa: a `width: 296px` estava lá, aplicada, e sendo cortada por um
+   * max-width que ninguém suspeitaria.
+   *
+   * O limite em tela estreita fica na media query abaixo, onde `100%` tem um
+   * referencial de verdade (a linha inteira).
+   */
+}
+
+/* A coluna de ações precisa poder RECLAMAR largura, senão o campo de 296px não
+   cabe e o navegador espreme tudo em vez de quebrar a linha. */
+.acoes.compacta { flex: 1 1 320px; }
+
+/* No celular a linha inteira é mais estreita que 296px: aí o campo encolhe e
+   usa a largura disponível, que ainda é maior do que era antes. */
+@media (max-width: 560px) {
+  .campo-etiqueta { flex: 1 1 100%; }
+  .campo-etiqueta select { flex: 1 1 auto; width: auto; max-width: 100%; }
+}
+
+/* Contador do campo do diálogo: o limite tem que ser visível ANTES de ser
+   atingido, senão a digitação só "para" e ninguém entende por quê. */
+.dlg-contador {
+  font-size: 0.62rem;
+  color: var(--tinta-3, #5A5E63);
+  text-align: right;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.dlg-contador.no-limite { color: var(--ambar-txt, #9D5E00); }
+
+/* ---------- cartão de número escolhido ----------
+   Fica visível e marcado; clicar nele de novo é o gesto de voltar. */
+.cartao-escolha.escolhido {
+  border-color: var(--tinta, #191B1E);
+  background: var(--nos-fraco, rgba(178, 107, 0, 0.10));
+}
+.cartao-escolha.escolhido .ce-ir::after { content: " (clique para voltar)"; }
+
+/* ---------- a linha de ações não pode espremer os campos ----------
+   `.acoes.compacta` é flex-row; sem permitir quebra, o select de assunto e os
+   interruptores disputavam a mesma largura e todos ficavam cortados. Quebrar é
+   melhor que cortar: o conteúdo continua legível, só ocupa mais uma linha. */
+.acoes.compacta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.linha-item.compacta {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.linha-item.compacta .corpo { flex: 1 1 260px; min-width: 0; }

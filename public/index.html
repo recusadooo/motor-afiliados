@@ -206,12 +206,12 @@
         <div class="linha-campos" style="margin-top:10px">
           <div><label for="g-jid">Id do grupo</label><input id="g-jid" placeholder="120363XXXXXXXXXX@g.us" /></div>
           <div><label for="g-nome">Nome (como você reconhece)</label><input id="g-nome" placeholder="ex.: Promos Tech BR" /></div>
-          <div><label for="g-kind">Tipo</label><select id="g-kind">
-            <option value="promo">promo — promoção genérica</option>
-            <option value="nicho">nicho — do seu nicho</option>
-            <option value="misto">misto</option>
-            <option value="proprio">próprio — seu grupo</option>
-          </select></div>
+          <!--
+            O select de "tipo" saiu daqui pelo mesmo motivo que saiu do card:
+            promo/nicho/misto viraram redundantes com o ASSUNTO. O grupo entra
+            como concorrente (o caso comum) e, se for seu, é um clique no
+            interruptor "Meu grupo" depois de cadastrado.
+          -->
         </div>
         <div class="passo-acoes"><button class="btn" id="btn-add-grupo">Adicionar</button></div>
       </details>

@@ -130,7 +130,10 @@ if (!DB) {
   test('recusa nome curto demais e longo demais', async () => {
     assert.equal((await req('/api/intel/etiquetas', 'POST', { nome: 'a' })).status, 400);
     assert.equal((await req('/api/intel/etiquetas', 'POST', { nome: '  ' })).status, 400);
-    assert.equal((await req('/api/intel/etiquetas', 'POST', { nome: 'x'.repeat(41) })).status, 400);
+    assert.equal((await req('/api/intel/etiquetas', 'POST', { nome: 'x'.repeat(31) })).status, 400,
+      'acima de 30 tem que recusar — é o que a interface consegue mostrar inteiro');
+    assert.equal((await req('/api/intel/etiquetas', 'POST', { nome: 'x'.repeat(30) })).status, 200,
+      'exatamente 30 tem que passar');
   });
 
   /* ==================== ligar ao grupo ==================== */

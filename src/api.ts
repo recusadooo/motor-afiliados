@@ -798,7 +798,12 @@ app.get('/api/intel/etiquetas', wrap(async (_req: Request, res: Response) => {
 app.post('/api/intel/etiquetas', wrap(async (req: Request, res: Response) => {
   const nome = String(req.body?.nome ?? '').trim();
   if (nome.length < 2) return res.status(400).json({ error: 'dê um nome com pelo menos 2 letras' });
-  if (nome.length > 40) return res.status(400).json({ error: 'nome muito longo (máx. 40)' });
+  /*
+   * 30 é o teto porque é o que a interface consegue mostrar INTEIRO sem cortar
+   * nem quebrar linha. Aceitar 40 e exibir 30 seria pior que recusar: o dono
+   * cadastraria um nome que nunca conseguiria ler de volta.
+   */
+  if (nome.length > 30) return res.status(400).json({ error: 'nome muito longo (máx. 30 caracteres)' });
   const norm = normalizarEtiqueta(nome);
 
   const existente = await queryOne<{ id: string; nome: string }>(

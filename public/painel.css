@@ -421,7 +421,11 @@ nav a.ativa { color: var(--ink); border-bottom-color: var(--nos); }
  */
 .linha-item.compacta { align-items: center; }
 .linha-item.compacta .acoes { flex-direction: row; align-items: center; gap: 8px; }
-.linha-item.compacta .acoes select { max-width: 168px; }
+/* O teto de 168px daqui foi REMOVIDO. Ele existia para o antigo select de
+   "tipo" (4 opções curtas) não esticar a linha; com o campo de ASSUNTO, que
+   precisa mostrar 30 caracteres, virou um corte silencioso — e vencia a regra
+   do componente por especificidade (0,3,1 contra 0,1,1). A largura do campo
+   agora é decidida em `componentes.css`, junto com o motivo dela. */
 
 /*
  * Painel dobrável (o formulário de adicionar grupo). O triângulo nativo do

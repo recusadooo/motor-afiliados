@@ -749,18 +749,12 @@ async function carregarVarreduras() {
 }
 
 /* ==================== GRUPOS OBSERVADOS ==================== */
-const KIND_ROTULO = { promo: 'promoção genérica', nicho: 'do seu nicho', misto: 'misto', proprio: 'seu grupo' };
-
 /*
- * UMA COR = UM SIGNIFICADO, e aqui estava INVERTIDO. A etiqueta usava
- * `kind === 'nicho' ? 'nos' : 'eles'`, o que pintava de âmbar ("nosso motor")
- * um grupo que é do CONCORRENTE, e de magenta ("eles") justamente o `proprio`,
- * que é o único grupo nosso. `kind` é taxonomia de conteúdo — promo/nicho/misto
- * se distinguem pelo TEXTO da etiqueta, não por matiz de dado. O âmbar fica
- * reservado para o que de fato é nosso, porque é ele que separa o grupo que
- * PRECISA ficar fora de "o que eles escolhem" (report.ts já o exclui).
+ * O antigo mapa de rótulos de `kind` saiu junto com o select de 4 opções:
+ * promo/nicho/misto viraram redundantes com o ASSUNTO, e o que sobrou —
+ * "é meu grupo?" — é binário e não precisa de tabela de tradução.
  */
-const kindClasse = (k) => (k === 'proprio' ? 'nos' : 'eles');
+
 
 async function carregarGrupos() {
   const [grupos] = await Promise.all([
@@ -781,10 +775,23 @@ async function carregarGrupos() {
       'Entre num grupo de promoção com o número de escuta, cole o id aqui, e o motor começa a comparar o que eles postam com o que a API ofereceu no mesmo momento.');
     return;
   }
+  /*
+   * O "tipo" tinha 4 opções (promo/nicho/misto/proprio) e três delas viraram
+   * REDUNDANTES quando o assunto passou a existir: "promoção genérica" e "do
+   * seu nicho" respondiam mal a pergunta que o assunto responde bem. Sobrou a
+   * única que NÃO é redundante: se o grupo é SEU. Ela é load-bearing —
+   * `report.ts` exclui kind='proprio' de "o que ELES escolhem" em três
+   * consultas, e sem essa marcação os seus próprios posts contaminariam a
+   * análise dos concorrentes em silêncio.
+   *
+   * ⚠️ E o comentário fica AQUI, fora do template literal. Crase dentro de
+   * comentário dentro de template FECHA a string — é a terceira vez que essa
+   * armadilha morde este projeto (já mordeu report.ts duas vezes).
+   */
   alvo.innerHTML = grupos.map((g) => `<article class="linha-item sem-foto compacta">
     <div class="corpo">
       <div class="t-titulo">${esc(g.display_name || g.group_jid)}
-        <span class="tag ${kindClasse(g.kind)}">${esc(KIND_ROTULO[g.kind] || g.kind)}</span>
+        ${g.kind === 'proprio' ? '<span class="tag nos">seu grupo</span>' : ''}
         ${g.etiqueta ? `<span class="tag entrada">${esc(g.etiqueta)}</span>` : ''}
         ${g.is_active ? '' : '<span class="tag neutro">PAUSADO</span>'}</div>
       <div class="meta">
@@ -794,16 +801,10 @@ async function carregarGrupos() {
       </div>
     </div>
     <div class="acoes compacta">
-      <!--
-        DOIS campos, porque são DUAS perguntas: o "tipo" diz o PAPEL do grupo
-        em relação a você (é seu? é concorrente?) e o "assunto" diz do que ele
-        fala. Antes só existia o primeiro, e ele era lido como se respondesse
-        o segundo — daí "promoção genérica" parecer raso.
-      -->
-      <select data-kind-de="${g.id}" style="font-size:12px;padding:5px 8px" title="Papel do grupo">
-        ${Object.entries(KIND_ROTULO).map(([k, v]) => `<option value="${k}"${g.kind === k ? ' selected' : ''}>${v}</option>`).join('')}
-      </select>
       ${campoEtiqueta(g)}
+      ${interruptor(g.kind === 'proprio',
+        'data-meu-grupo="' + g.id + '"',
+        'Meu grupo')}
       <button class="btn fantasma pequeno${g.is_active ? ' perigo' : ''}" data-grupo="${g.id}" data-op="${g.is_active ? 'pausar' : 'ativar'}">${g.is_active ? 'pausar' : 'ativar'}</button>
       <button class="btn perigo pequeno" data-grupo="${g.id}" data-op="remover">remover</button>
     </div></article>`).join('');
@@ -813,10 +814,10 @@ async function carregarCobertura() {
   const linhas = await api('/api/intel/coverage?dias=' + ($('i-dias')?.value || 14));
   $('cobertura').innerHTML = linhas && linhas.length
     ? `<div class="rolagem"><table>
-        <thead><tr><th>grupo</th><th>tipo</th><th>posts</th><th>casados</th><th>taxa</th><th>atraso mediano</th><th>último post</th></tr></thead>
+        <thead><tr><th>grupo</th><th>de quem</th><th>posts</th><th>casados</th><th>taxa</th><th>atraso mediano</th><th>último post</th></tr></thead>
         <tbody>${linhas.map((c) => `<tr>
           <td>${esc(c.nome || '—')}${c.ativo ? '' : ' <span class="tag neutro">pausado</span>'}</td>
-          <td>${esc(KIND_ROTULO[c.kind] || c.kind)}</td>
+          <td>${c.kind === 'proprio' ? 'seu grupo' : 'concorrente'}</td>
           <td>${inteiro(c.posts)}</td><td>${inteiro(c.casados)}</td>
           <td>${c.taxaCasamento != null ? c.taxaCasamento.toFixed(0) + '%' : '—'}</td>
           <td>${duracao(c.atrasoMedianoSeg)}</td>
@@ -1057,6 +1058,24 @@ async function novaEtiqueta(grupoId) {
   }
 }
 
+/*
+ * "Meu grupo" grava `kind` — a única distinção do antigo tipo que sobreviveu,
+ * porque `report.ts` a usa para tirar os seus posts de "o que ELES escolhem".
+ * Ligado = 'proprio'; desligado volta a 'promo', que é o neutro.
+ */
+async function alternarMeuGrupo(botao) {
+  const ligado = botao.getAttribute('aria-checked') === 'true';
+  botao.disabled = true;
+  try {
+    await enviar('/api/intel/groups/' + botao.dataset.meuGrupo, 'PATCH',
+      { kind: ligado ? 'promo' : 'proprio' });
+    carregarGrupos();
+  } catch (e) {
+    avisarErro(e.message);
+    botao.disabled = false;
+  }
+}
+
 async function aplicarEtiqueta(grupoId, etiquetaId) {
   try {
     await enviar('/api/intel/groups/' + grupoId, 'PATCH', { etiqueta_id: etiquetaId || null });
@@ -1088,7 +1107,9 @@ function dialogoTexto(opcoes) {
       '<h2 class="dlg-titulo">' + esc(titulo) + '</h2>' +
       '<p class="dlg-texto">' + esc(texto) + '</p>' +
       '<label for="dlg-campo" style="margin-top:14px">' + esc(rotulo) + '</label>' +
-      '<input id="dlg-campo" value="' + esc(valor) + '" placeholder="' + esc(exemplo) + '" autocomplete="off" />' +
+      '<input id="dlg-campo" value="' + esc(valor) + '" placeholder="' + esc(exemplo) +
+      '" maxlength="30" autocomplete="off" />' +
+      '<div class="dlg-contador"><span id="dlg-conta">0</span>/30</div>' +
       (detalhe ? '<p class="dlg-detalhe" style="margin-top:12px">' + esc(detalhe) + '</p>' : '') +
       '<div class="dlg-acoes">' +
       '<button class="btn fantasma" data-dlg="nao">' + esc(cancelar) + '</button>' +
@@ -1096,6 +1117,17 @@ function dialogoTexto(opcoes) {
       '</div></div>';
 
     const campo = fundo.querySelector('#dlg-campo');
+    /*
+     * Contador visível em vez de só `maxlength`. Com o limite silencioso, quem
+     * digita um nome longo vê a digitação simplesmente PARAR e não entende por
+     * quê — o teto tem que ser dito antes de ser atingido.
+     */
+    const conta = fundo.querySelector('#dlg-conta');
+    const atualizarConta = () => {
+      conta.textContent = String(campo.value.length);
+      conta.parentElement.classList.toggle('no-limite', campo.value.length >= 30);
+    };
+    campo.addEventListener('input', atualizarConta);
     const fechar = (v) => {
       document.removeEventListener('keydown', naTecla);
       fundo.remove();
@@ -1120,6 +1152,7 @@ function dialogoTexto(opcoes) {
     });
     document.addEventListener('keydown', naTecla);
     document.body.appendChild(fundo);
+    atualizarConta();
     campo.focus();
     campo.select();
   });
@@ -1167,9 +1200,19 @@ async function carregarAddNumeros() {
 
 /* Passo 2 — lista de grupos daquele número, filtrável. */
 function abrirAddGrupos(indice) {
+  /*
+   * Clicar de novo no número JÁ escolhido volta. Antes só o botão "recomeçar"
+   * fazia isso, e o gesto natural — clicar no mesmo cartão — não fazia nada:
+   * quem abriu o número errado ficava procurando a saída.
+   */
+  if (addEscolhido && addNumeros[indice] === addEscolhido) return voltarAddNumero();
+
   addEscolhido = addNumeros[indice];
   if (!addEscolhido) return;
-  $('add-passo-numero').style.display = 'none';
+  // O cartão escolhido CONTINUA visível e marcado — é ele que se clica para
+  // voltar, e sumir com ele apagaria a pista de onde você está.
+  document.querySelectorAll('[data-add-num]').forEach((c, i) =>
+    c.classList.toggle('escolhido', i === indice));
   $('add-passo-grupo').style.display = 'block';
   $('btn-add-recomecar').style.display = '';
   $('add-num-nome').textContent = addEscolhido.instancia;
@@ -1210,7 +1253,7 @@ function normaliza(s) {
 
 function voltarAddNumero() {
   addEscolhido = null;
-  $('add-passo-numero').style.display = '';
+  document.querySelectorAll('[data-add-num]').forEach((c) => c.classList.remove('escolhido'));
   $('add-passo-grupo').style.display = 'none';
   $('btn-add-recomecar').style.display = 'none';
 }
@@ -1816,6 +1859,7 @@ document.addEventListener('click', async (ev) => {
   const sw = ev.target.closest('.interruptor');
   if (sw) {
     if (sw.dataset.nichoShopee) { nichoTodas = !nichoTodas; return carregarNicho(); }
+    if (sw.dataset.meuGrupo) return alternarMeuGrupo(sw);
     return sw.dataset.disparo ? alternarDisparo(sw) : alternarObservacao(sw);
   }
   const nova = ev.target.closest('[data-nova-etiq]');
@@ -2035,7 +2079,8 @@ function ligar() {
       const r = await enviar('/api/intel/groups', 'POST', {
         group_jid: $('g-jid').value.trim(),
         display_name: $('g-nome').value.trim() || undefined,
-        kind: $('g-kind').value,
+        // Entra como concorrente; "Meu grupo" é um clique depois, no card.
+        kind: 'promo',
       });
       msg('g-msg', 'grupo cadastrado (id ' + r.id + ')', 'ok');
       $('g-jid').value = ''; $('g-nome').value = '';
