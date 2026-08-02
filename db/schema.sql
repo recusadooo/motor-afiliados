@@ -487,3 +487,29 @@ CREATE INDEX IF NOT EXISTS idx_api_obs_cat ON api_observations (cat_raiz);
 ALTER TABLE offers ADD COLUMN IF NOT EXISTS cat_ids  BIGINT[];
 ALTER TABLE offers ADD COLUMN IF NOT EXISTS cat_nome TEXT;
 ALTER TABLE offers ADD COLUMN IF NOT EXISTS cat_raiz TEXT;
+
+-- ============================================================
+-- ETIQUETA DE ASSUNTO DO GRUPO (cadastrável pelo dono)
+-- ============================================================
+-- Diferente de `intel_groups.kind`, e as duas convivem de propósito:
+--   kind     = PAPEL   (é meu grupo? é concorrente? é do meu nicho?)
+--   etiqueta = ASSUNTO (Tecnologia, Eletrodomésticos, Maquiagem, Moda…)
+-- Misturar as duas era o que tornava "promoção genérica" raso: ele respondia
+-- a pergunta do papel e era lido como se respondesse a do assunto.
+--
+-- O catálogo nasce das 31 categorias de nível 1 da própria Shopee (ver
+-- `shopee_categories`), então já vem útil no primeiro uso, e o dono pode
+-- acrescentar as que faltarem.
+CREATE TABLE IF NOT EXISTS etiquetas_grupo (
+  id         BIGSERIAL PRIMARY KEY,
+  nome       TEXT NOT NULL,
+  -- `nome_norm` é a chave de unicidade real: sem ela "Esportes", "esportes" e
+  -- "ESPORTES " virariam três etiquetas diferentes, e o dono acharia que o
+  -- cadastro não funcionou.
+  nome_norm  TEXT NOT NULL UNIQUE,
+  origem     TEXT NOT NULL DEFAULT 'usuario' CHECK (origem IN ('shopee','usuario')),
+  criada_em  TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE intel_groups ADD COLUMN IF NOT EXISTS etiqueta_id BIGINT REFERENCES etiquetas_grupo(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_intel_groups_etiqueta ON intel_groups (etiqueta_id);

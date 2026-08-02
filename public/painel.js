@@ -763,7 +763,11 @@ const KIND_ROTULO = { promo: 'promoção genérica', nicho: 'do seu nicho', mist
 const kindClasse = (k) => (k === 'proprio' ? 'nos' : 'eles');
 
 async function carregarGrupos() {
-  const [grupos] = await Promise.all([api('/api/intel/groups'), guardar(carregarCobertura, 'cobertura')]);
+  const [grupos] = await Promise.all([
+    api('/api/intel/groups'),
+    carregarEtiquetas(),
+    guardar(carregarCobertura, 'cobertura'),
+  ]);
   const alvo = $('lista-grupos');
   /*
    * A caixa de adicionar deixou de ser um <details> que abria e fechava sozinho:
@@ -781,6 +785,7 @@ async function carregarGrupos() {
     <div class="corpo">
       <div class="t-titulo">${esc(g.display_name || g.group_jid)}
         <span class="tag ${kindClasse(g.kind)}">${esc(KIND_ROTULO[g.kind] || g.kind)}</span>
+        ${g.etiqueta ? `<span class="tag entrada">${esc(g.etiqueta)}</span>` : ''}
         ${g.is_active ? '' : '<span class="tag neutro">PAUSADO</span>'}</div>
       <div class="meta">
         <span class="mono">${esc(g.group_jid)}</span>
@@ -788,10 +793,17 @@ async function carregarGrupos() {
         <span>último <b>${g.last_post_at ? dataHora(g.last_post_at) : 'nenhum'}</b></span>
       </div>
     </div>
-    <div class="acoes">
-      <select data-kind-de="${g.id}" style="font-size:12px;padding:5px 8px">
+    <div class="acoes compacta">
+      <!--
+        DOIS campos, porque são DUAS perguntas: o "tipo" diz o PAPEL do grupo
+        em relação a você (é seu? é concorrente?) e o "assunto" diz do que ele
+        fala. Antes só existia o primeiro, e ele era lido como se respondesse
+        o segundo — daí "promoção genérica" parecer raso.
+      -->
+      <select data-kind-de="${g.id}" style="font-size:12px;padding:5px 8px" title="Papel do grupo">
         ${Object.entries(KIND_ROTULO).map(([k, v]) => `<option value="${k}"${g.kind === k ? ' selected' : ''}>${v}</option>`).join('')}
       </select>
+      ${campoEtiqueta(g)}
       <button class="btn fantasma pequeno${g.is_active ? ' perigo' : ''}" data-grupo="${g.id}" data-op="${g.is_active ? 'pausar' : 'ativar'}">${g.is_active ? 'pausar' : 'ativar'}</button>
       <button class="btn perigo pequeno" data-grupo="${g.id}" data-op="remover">remover</button>
     </div></article>`).join('');
@@ -889,6 +901,225 @@ async function carregarConfig() {
   $('evo-url').value = s.evolution_api_url || '';
 }
 
+/* ==================== DIÁLOGO DENTRO DA PÁGINA ==================== */
+
+/*
+ * Substitui `alert()` e `confirm()` nativos.
+ *
+ * O nativo tinha três problemas concretos: aparece colado no topo da janela
+ * (longe de onde você clicou), estampa "cupom.trakads.cloud diz" — que é o
+ * navegador falando, não o app —, e TRAVA a página inteira enquanto está
+ * aberto, o que num aviso do tipo "isso leva alguns minutos" é o oposto do que
+ * se quer dizer.
+ *
+ * Aqui: centralizado, com X e OK, e um lugar para explicar se dá ou não para
+ * fechar a tela — porque essa é justamente a dúvida que um aviso de processo
+ * demorado gera.
+ *
+ * Devolve Promise<boolean>: `true` = confirmou, `false` = cancelou/fechou.
+ */
+function dialogo(opcoes) {
+  const { titulo, texto, detalhe, ok = 'OK', cancelar = null, tom = 'neutro' } = opcoes;
+
+  return new Promise((resolve) => {
+    const fundo = document.createElement('div');
+    fundo.className = 'sobreposicao';
+    fundo.innerHTML =
+      '<div class="dialogo ' + tom + '" role="dialog" aria-modal="true" aria-labelledby="dlg-t">' +
+      '<button class="dlg-x" aria-label="Fechar">×</button>' +
+      '<h2 class="dlg-titulo" id="dlg-t">' + esc(titulo) + '</h2>' +
+      '<p class="dlg-texto">' + esc(texto) + '</p>' +
+      (detalhe ? '<p class="dlg-detalhe">' + esc(detalhe) + '</p>' : '') +
+      '<div class="dlg-acoes">' +
+      (cancelar ? '<button class="btn fantasma" data-dlg="nao">' + esc(cancelar) + '</button>' : '') +
+      '<button class="btn" data-dlg="sim">' + esc(ok) + '</button>' +
+      '</div></div>';
+
+    const fechar = (valor) => {
+      document.removeEventListener('keydown', naTecla);
+      fundo.remove();
+      resolve(valor);
+    };
+    /* Esc fecha e Enter confirma: teclado é o caminho mais rápido para quem
+       está clicando em sequência, e o diálogo nativo dava isso de graça. */
+    const naTecla = (e) => {
+      if (e.key === 'Escape') fechar(false);
+      if (e.key === 'Enter') fechar(true);
+    };
+
+    fundo.addEventListener('click', (e) => {
+      if (e.target === fundo || e.target.closest('.dlg-x')) return fechar(false);
+      const b = e.target.closest('[data-dlg]');
+      if (b) fechar(b.dataset.dlg === 'sim');
+    });
+    document.addEventListener('keydown', naTecla);
+    document.body.appendChild(fundo);
+    fundo.querySelector('[data-dlg="sim"]').focus();
+  });
+}
+
+/** Aviso simples — só OK. */
+const avisar = (titulo, texto, detalhe) => dialogo({ titulo, texto, detalhe });
+
+/** Erro — mesmo diálogo, tom diferente, para não parecer sucesso. */
+const avisarErro = (texto) =>
+  dialogo({ titulo: 'Não deu certo', texto, tom: 'erro', ok: 'Entendi' });
+
+/** Confirmação destrutiva — o botão de confirmar assume o tom de perigo. */
+const confirmar = (titulo, texto, detalhe) =>
+  dialogo({ titulo, texto, detalhe, ok: 'Sim, continuar', cancelar: 'Cancelar', tom: 'perigo' });
+
+/* ==================== ETIQUETA DE ASSUNTO DO GRUPO ==================== */
+
+/*
+ * O `kind` (promo/nicho/misto/proprio) responde o PAPEL do grupo em relação a
+ * você. A etiqueta responde o ASSUNTO: Tecnologia, Eletrodomésticos, Maquiagem,
+ * Moda. As duas convivem porque são perguntas diferentes — misturá-las era o que
+ * tornava "promoção genérica" raso: ele respondia a do papel e era lido como se
+ * respondesse a do assunto.
+ *
+ * O catálogo começa com as 31 categorias de nível 1 da própria Shopee, então já
+ * nasce útil, e o dono acrescenta o que faltar.
+ */
+let etiquetas = [];
+
+async function carregarEtiquetas() {
+  try { etiquetas = await api('/api/intel/etiquetas'); } catch { etiquetas = []; }
+  return etiquetas;
+}
+
+/** Campo de assunto: lista + digitar para filtrar + cadastrar o que não existe. */
+function campoEtiqueta(grupo) {
+  const atual = grupo.etiqueta_id
+    ? etiquetas.find((e) => String(e.id) === String(grupo.etiqueta_id))
+    : null;
+  const opcoes = etiquetas.map((e) =>
+    '<option value="' + esc(e.id) + '"' + (atual && String(atual.id) === String(e.id) ? ' selected' : '') + '>' +
+    esc(e.nome) + (e.origem === 'usuario' ? ' *' : '') + '</option>').join('');
+  return '<div class="campo-etiqueta">' +
+    '<select data-etiq-de="' + esc(grupo.id) + '" aria-label="Assunto do grupo">' +
+    '<option value="">— sem assunto —</option>' + opcoes + '</select>' +
+    '<button class="btn fantasma pequeno" data-nova-etiq="' + esc(grupo.id) + '">+ nova</button>' +
+    '</div>';
+}
+
+/**
+ * Cadastro de etiqueta nova, no fluxo que o dono pediu: digita, o painel diz
+ * que não existe, e só então pergunta se quer mesmo cadastrar — com o nome
+ * EDITÁVEL antes de confirmar, porque é no momento da confirmação que se
+ * percebe o erro de digitação.
+ */
+async function novaEtiqueta(grupoId) {
+  const digitado = await dialogoTexto({
+    titulo: 'Qual assunto?',
+    texto: 'Digite o nome do assunto. Se já existir, eu seleciono a que existe em vez de duplicar.',
+    rotulo: 'Nome do assunto',
+    exemplo: 'ex.: Esportes',
+    ok: 'Procurar',
+  });
+  if (!digitado) return;
+
+  const jaTem = etiquetas.find((e) =>
+    normaliza(e.nome) === normaliza(digitado));
+  if (jaTem) {
+    await avisar('Esse assunto já existe',
+      '"' + jaTem.nome + '" já está no catálogo — selecionei para você.');
+    return aplicarEtiqueta(grupoId, jaTem.id);
+  }
+
+  // Não existe: aí sim pergunta se quer cadastrar, com o nome ainda editável.
+  const confirmado = await dialogoTexto({
+    titulo: 'Cadastrar "' + digitado + '"?',
+    texto: 'Esse assunto ainda não existe no catálogo. Quer cadastrar?',
+    detalhe: 'Ele passa a aparecer na lista de todos os grupos. Dá para corrigir o nome aqui embaixo antes de confirmar.',
+    rotulo: 'Nome que será cadastrado',
+    valor: digitado,
+    ok: 'Sim, cadastrar',
+    cancelar: 'Não',
+    tom: 'perigo',
+  });
+  if (!confirmado) return;
+
+  try {
+    const r = await enviar('/api/intel/etiquetas', 'POST', { nome: confirmado });
+    await carregarEtiquetas();
+    await aplicarEtiqueta(grupoId, r.id);
+    await avisar(r.jaExistia ? 'Esse assunto já existia' : 'Assunto cadastrado',
+      '"' + r.nome + '"' + (r.jaExistia ? ' já estava no catálogo e foi selecionado.' : ' agora está no catálogo.'),
+      r.jaExistia ? undefined : 'Ele aparece na lista de assunto de todos os grupos daqui em diante.');
+  } catch (e) {
+    avisarErro(e.message);
+  }
+}
+
+async function aplicarEtiqueta(grupoId, etiquetaId) {
+  try {
+    await enviar('/api/intel/groups/' + grupoId, 'PATCH', { etiqueta_id: etiquetaId || null });
+    carregarGrupos();
+  } catch (e) {
+    avisarErro(e.message);
+  }
+}
+
+/**
+ * Diálogo com CAMPO DE TEXTO — a variante que o cadastro precisa.
+ *
+ * Existe separado de `dialogo()` porque a diferença não é visual: aqui o valor
+ * de retorno é o texto, não um sim/não, e o campo precisa vir preenchido e
+ * selecionável para corrigir antes de confirmar.
+ *
+ * Devolve a string digitada, ou null se cancelou.
+ */
+function dialogoTexto(opcoes) {
+  const { titulo, texto, detalhe, rotulo, valor = '', exemplo = '',
+          ok = 'OK', cancelar = 'Cancelar', tom = 'neutro' } = opcoes;
+
+  return new Promise((resolve) => {
+    const fundo = document.createElement('div');
+    fundo.className = 'sobreposicao';
+    fundo.innerHTML =
+      '<div class="dialogo ' + tom + '" role="dialog" aria-modal="true">' +
+      '<button class="dlg-x" aria-label="Fechar">×</button>' +
+      '<h2 class="dlg-titulo">' + esc(titulo) + '</h2>' +
+      '<p class="dlg-texto">' + esc(texto) + '</p>' +
+      '<label for="dlg-campo" style="margin-top:14px">' + esc(rotulo) + '</label>' +
+      '<input id="dlg-campo" value="' + esc(valor) + '" placeholder="' + esc(exemplo) + '" autocomplete="off" />' +
+      (detalhe ? '<p class="dlg-detalhe" style="margin-top:12px">' + esc(detalhe) + '</p>' : '') +
+      '<div class="dlg-acoes">' +
+      '<button class="btn fantasma" data-dlg="nao">' + esc(cancelar) + '</button>' +
+      '<button class="btn" data-dlg="sim">' + esc(ok) + '</button>' +
+      '</div></div>';
+
+    const campo = fundo.querySelector('#dlg-campo');
+    const fechar = (v) => {
+      document.removeEventListener('keydown', naTecla);
+      fundo.remove();
+      resolve(v);
+    };
+    const confirmar2 = () => {
+      const t = campo.value.trim();
+      if (!t) return campo.focus();
+      fechar(t);
+    };
+    const naTecla = (e) => {
+      if (e.key === 'Escape') fechar(null);
+      if (e.key === 'Enter') { e.preventDefault(); confirmar2(); }
+    };
+
+    fundo.addEventListener('click', (e) => {
+      if (e.target === fundo || e.target.closest('.dlg-x')) return fechar(null);
+      const b = e.target.closest('[data-dlg]');
+      if (!b) return;
+      if (b.dataset.dlg === 'sim') return confirmar2();
+      fechar(null);
+    });
+    document.addEventListener('keydown', naTecla);
+    document.body.appendChild(fundo);
+    campo.focus();
+    campo.select();
+  });
+}
+
 /* ==================== ADICIONAR GRUPO PARA OBSERVAR (2 passos) ==================== */
 
 let addNumeros = [];
@@ -947,14 +1178,21 @@ function desenharAddGrupos(filtro) {
   const lista = addEscolhido.grupos.filter((g) => !f || normaliza(g.nome).includes(f));
   $('add-grupos').innerHTML = lista.length
     ? lista.map((g) => {
+        /*
+         * INTERRUPTOR também aqui, não "nada a fazer". A lista serve para
+         * DECIDIR o que observar, e um grupo já ligado é justamente o que se
+         * pode querer desligar — dizer "nada a fazer" transformava um estado
+         * ajustável em beco sem saída, e obrigava a ir procurar o controle
+         * noutra tela.
+         */
         const jaObservado = !!(g.observado && g.observado.ativo);
         return '<div class="linha-escolha">' +
           '<div><b>' + esc(g.nome) + '</b>' +
-          (jaObservado ? ' <span class="tag eles">já observado</span>' : '') +
           '<div class="nota mono">' + esc(g.jid) + '</div></div>' +
-          (jaObservado
-            ? '<span class="nota">nada a fazer</span>'
-            : '<button class="btn pequeno" data-add-jid="' + esc(g.jid) + '" data-add-nome="' + esc(g.nome) + '">observar</button>') +
+          interruptor(jaObservado,
+            'data-obs-jid="' + esc(g.jid) + '" data-obs-inst="' + esc(addEscolhido.instancia) +
+            '" data-obs-nome="' + esc(g.nome) + '" data-obs-tipo="promo" data-na-lista="1"',
+            'Observar') +
           '</div>';
       }).join('')
     : '<div class="nota" style="padding:12px">nenhum grupo com esse nome.</div>';
@@ -1060,7 +1298,7 @@ async function alternarObservacao(botao) {
     }
     await carregarNumeros();
   } catch (e) {
-    alert('não deu: ' + e.message);
+    avisarErro(e.message);
     botao.disabled = false;
   }
 }
@@ -1082,15 +1320,15 @@ async function alternarDisparo(botao) {
     await carregarNumeros();
     carregarCanais();
   } catch (e) {
-    alert('não deu: ' + e.message);
+    avisarErro(e.message);
     botao.disabled = false;
   }
 }
 
 /* ==================== SEUS NÚMEROS (Conexões) ==================== */
 
-async function carregarNumeros() {
-  const r = await api('/api/numeros');
+async function carregarNumeros(forcar) {
+  const r = await api('/api/numeros' + (forcar ? '?atualizar=1' : ''));
   const alvo = $('numeros');
   if (r.evolutionConfigurada === false) {
     alvo.innerHTML = vazio('Evolution ainda não configurada',
@@ -1472,7 +1710,7 @@ async function buscarAgora() {
     await enviar('/api/capture/run', 'POST');
     setTimeout(() => { recarregar(); b.disabled = false; b.textContent = antes; }, 9000);
   } catch (e) {
-    alert('não deu: ' + e.message);
+    avisarErro(e.message);
     b.disabled = false;
     b.textContent = antes;
   }
@@ -1521,6 +1759,9 @@ document.addEventListener('click', async (ev) => {
     if (sw.dataset.nichoShopee) { nichoTodas = !nichoTodas; return carregarNicho(); }
     return sw.dataset.disparo ? alternarDisparo(sw) : alternarObservacao(sw);
   }
+  const nova = ev.target.closest('[data-nova-etiq]');
+  if (nova) return novaEtiqueta(nova.dataset.novaEtiq);
+
   const addNum = ev.target.closest('[data-add-num]');
   if (addNum) return abrirAddGrupos(Number(addNum.dataset.addNum));
   const addJid = ev.target.closest('[data-add-jid]');
@@ -1553,26 +1794,33 @@ document.addEventListener('click', async (ev) => {
       });
       await carregarNumeros();
       carregarCanais();
-    } catch (e) { alert('não deu: ' + e.message); }
+    } catch (e) { avisarErro(e.message); }
     return;
   }
 
   const acao = alvo.dataset.acao;
-  if (acao === 'numeros') return carregarNumeros();
+  if (acao === 'numeros') return carregarNumeros(true);
   if (acao === 'sync-cat') {
     try {
       const r = await enviar('/api/shopee/categorias/sync', 'POST');
-      alert('categorias baixadas: ' + r.nivel1 + ' principais, ' + r.nivel2 + ' subcategorias.');
+      await avisar('Categorias baixadas',
+        r.nivel1 + ' categorias principais e ' + r.nivel2 + ' subcategorias, direto da árvore oficial da Shopee.',
+        'A partir de agora cada oferta capturada recebe a categoria carimbada pela própria Shopee.');
       carregarNicho();
-    } catch (e) { alert('não deu: ' + e.message); }
+    } catch (e) { avisarErro(e.message); }
     return;
   }
   if (acao === 'recarregar') return recarregar();
   if (acao === 'ciclo') return buscarAgora();
   if (acao === 'limpar-filtros') return limparFiltros();
   if (acao === 'varredura') {
-    try { await enviar('/api/intel/sweep', 'POST'); alert('varredura iniciada — leva alguns minutos.'); }
-    catch (e) { alert('não deu: ' + e.message); }
+    try {
+      await enviar('/api/intel/sweep', 'POST');
+      avisar('A varredura foi iniciada',
+        'Ela percorre todas as palavras-chave na API da Shopee e leva alguns minutos.',
+        'Pode fechar esta tela — o trabalho roda no servidor e continua sozinho. Os números aparecem na aba Inteligência quando terminar.');
+    }
+    catch (e) { avisarErro(e.message); }
     return;
   }
 
@@ -1592,7 +1840,9 @@ document.addEventListener('click', async (ev) => {
         return carregarFilas();
       }
       if (alvo.dataset.op === 'remover') {
-        if (!confirm('Parar de disparar nesse grupo e remover o canal?')) return;
+        if (!(await confirmar('Remover este canal de disparo?',
+          'O motor para de postar nesse grupo.',
+          'O histórico de envios desse canal também é apagado. O grupo em si continua existindo no WhatsApp.'))) return;
         await api('/api/channels/' + id, { method: 'DELETE' });
       } else {
         await enviar('/api/channels/' + id, 'PATCH', { status: alvo.dataset.op });
@@ -1602,7 +1852,9 @@ document.addEventListener('click', async (ev) => {
     if (alvo.dataset.grupo) {
       const id = alvo.dataset.grupo;
       if (alvo.dataset.op === 'remover') {
-        if (!confirm('Remover o grupo e TODOS os posts capturados dele?')) return;
+        if (!(await confirmar('Remover este grupo observado?',
+          'Some o grupo e TODOS os posts já capturados dele.',
+          'Isso apaga o histórico usado nas análises de nicho e de quem-copia-quem. Se você só quer parar de coletar, use o interruptor Observar em vez de remover.'))) return;
         await api('/api/intel/groups/' + id, { method: 'DELETE' });
       } else {
         await enviar('/api/intel/groups/' + id, 'PATCH', { is_active: alvo.dataset.op === 'ativar' });
@@ -1612,21 +1864,25 @@ document.addEventListener('click', async (ev) => {
     if (alvo.dataset.post) {
       alvo.disabled = true;
       const r = await enviar(`/api/intel/posts/${alvo.dataset.post}/rematch`, 'POST');
-      alert('resultado: ' + r.verdict + (r.confidence != null ? ` (confiança ${(r.confidence * 100).toFixed(0)}%)` : ''));
+      await avisar('Post recorrelacionado',
+        'Resultado: ' + r.verdict + (r.confidence != null ? ' (confiança ' + (r.confidence * 100).toFixed(0) + '%)' : ''));
       return carregarCorrelacao($('i-dia').value);
     }
   } catch (e) {
-    alert('erro: ' + e.message);
+    avisarErro(e.message);
   }
 });
 
 document.addEventListener('change', async (ev) => {
+  const selEtiq = ev.target.closest('[data-etiq-de]');
+  if (selEtiq) return aplicarEtiqueta(selEtiq.dataset.etiqDe, selEtiq.value);
+
   const sel = ev.target.closest('[data-kind-de]');
   if (!sel) return;
   try {
     await enviar('/api/intel/groups/' + sel.dataset.kindDe, 'PATCH', { kind: sel.value });
     carregarGrupos();
-  } catch (e) { alert('erro: ' + e.message); }
+  } catch (e) { avisarErro(e.message); }
 });
 
 function limparFiltros() {
@@ -1673,9 +1929,12 @@ function ligar() {
   // ciclos
   $('btn-ciclo-agora').addEventListener('click', buscarAgora);
   $('btn-limpar-feed').addEventListener('click', async () => {
-    if (!confirm('Apagar as ofertas do feed? O histórico de preço é preservado (é o que mede desconto real).')) return;
+    if (!(await confirmar('Limpar o feed?',
+      'Apaga as ofertas capturadas que ainda não foram enviadas.',
+      'O histórico de preço é PRESERVADO — é ele que mede desconto real, e sem ele o motor volta a acreditar no desconto anunciado.'))) return;
     const r = await enviar('/api/offers/purge', 'POST');
-    alert(r.apagadas + ' ofertas apagadas.');
+    await avisar('Feed limpo', r.apagadas + ' ofertas apagadas.',
+      'O histórico de preço continua intacto. O próximo ciclo roda em até 30 minutos.');
     recarregar();
   });
 
@@ -1683,13 +1942,24 @@ function ligar() {
   $('i-dia').addEventListener('change', () => guardar(carregarInteligencia, 'travessia'));
   $('i-dias').addEventListener('change', () => guardar(carregarInteligencia, 'travessia'));
   $('btn-varredura').addEventListener('click', async () => {
-    try { await enviar('/api/intel/sweep', 'POST'); alert('varredura iniciada — leva alguns minutos.'); }
-    catch (e) { alert('não deu: ' + e.message); }
+    try {
+      await enviar('/api/intel/sweep', 'POST');
+      avisar('A varredura foi iniciada',
+        'Ela percorre todas as palavras-chave na API da Shopee e leva alguns minutos.',
+        'Pode fechar esta tela — o trabalho roda no servidor e continua sozinho. Os números aparecem na aba Inteligência quando terminar.');
+    }
+    catch (e) { avisarErro(e.message); }
   });
   $('btn-recorrelacionar').addEventListener('click', async () => {
-    if (!confirm('Recorrelacionar TODOS os posts com os limiares atuais?')) return;
-    try { await enviar('/api/intel/rematch', 'POST', { todos: true }); alert('correlação iniciada.'); }
-    catch (e) { alert('não deu: ' + e.message); }
+    if (!(await confirmar('Recorrelacionar todos os posts?',
+      'Reavalia cada post dos grupos contra o cardápio da API, usando os limiares atuais.',
+      'Pode fechar a tela — roda no servidor. Os vereditos podem mudar; a fotografia congelada de cada casamento é preservada.'))) return;
+    try {
+      await enviar('/api/intel/rematch', 'POST', { todos: true });
+      await avisar('Correlação iniciada', 'Os posts estão sendo reavaliados agora.',
+        'Pode fechar esta tela. Os números da aba Inteligência se atualizam conforme termina.');
+    }
+    catch (e) { avisarErro(e.message); }
   });
   $('i-verdict').addEventListener('click', (ev) => {
     const b = ev.target.closest('[data-verdict]');
@@ -1714,7 +1984,9 @@ function ligar() {
     } catch (e) { msg('g-msg', e.message, 'err'); }
   });
   $('btn-girar-token').addEventListener('click', async () => {
-    if (!confirm('Gerar um segredo novo? O fluxo do n8n para de funcionar até você atualizar o endereço lá.')) return;
+    if (!(await confirmar('Gerar um segredo novo?',
+      'O endereço de ingestão muda na hora.',
+      'Quem estiver mandando dados para o endereço antigo para de funcionar até você atualizar o endereço lá.'))) return;
     await enviar('/api/intel/ingest-url/rotate', 'POST');
     carregarIngestUrl();
   });
@@ -1818,7 +2090,7 @@ function ligar() {
       await enviar('/api/settings', 'PUT', body);
       $('evo-key').value = '';
       carregarConfig();
-    } catch (e) { alert('erro: ' + e.message); }
+    } catch (e) { avisarErro(e.message); }
   });
   $('btn-salvar-ia').addEventListener('click', async () => {
     try {
@@ -1828,18 +2100,20 @@ function ligar() {
       await enviar('/api/settings', 'PUT', body);
       $('cfg-key').value = '';
       carregarConfig();
-    } catch (e) { alert('erro: ' + e.message); }
+    } catch (e) { avisarErro(e.message); }
   });
   $('btn-salvar-acesso').addEventListener('click', async () => {
     try {
       const senha = $('ac-pass').value;
       const usuario = $('ac-user').value.trim();
-      if (senha.length < 8) return alert('a senha precisa de pelo menos 8 caracteres');
+      if (senha.length < 8) return avisarErro('A senha precisa de pelo menos 8 caracteres.');
       await enviar('/api/access', 'POST', { senha, usuario: usuario || undefined });
       $('ac-pass').value = '';
-      alert('acesso atualizado — você vai precisar entrar de novo');
+      await avisar('Acesso atualizado',
+        'Usuário e senha do painel foram trocados.',
+        'As sessões abertas em outros dispositivos foram encerradas — você vai precisar entrar de novo.');
       location.href = '/login';
-    } catch (e) { alert('erro: ' + e.message); }
+    } catch (e) { avisarErro(e.message); }
   });
 }
 

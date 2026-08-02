@@ -38,8 +38,21 @@ if (!DB) {
   process.env.DATABASE_URL = DB;
   process.env.SHOPEE_APP_ID ??= 'teste';
   process.env.SHOPEE_APP_SECRET ??= 'teste';
+  /*
+   * Redis ausente de propósito, em porta que RECUSA na hora. A rota de criar
+   * grupo invalida o cache da lista de grupos, e sem isso o teste tentaria
+   * resolver o host `redis` (que só existe na rede do Docker) de formas
+   * diferentes conforme a máquina.
+   */
+  process.env.REDIS_URL = 'redis://127.0.0.1:6399';
+  process.on('unhandledRejection', (e) => {
+    const m = e instanceof Error ? e.message : String(e);
+    if (/ECONNREFUSED|ENOTFOUND|Connection is closed|Stream isn't writeable/i.test(m)) return;
+    throw e;
+  });
 
   const { app } = require('../api') as typeof import('../api');
+  const { closeQueues } = require('../queue/queues') as typeof import('../queue/queues');
   const { migrate } = require('../migrate') as typeof import('../migrate');
   const { query, closePool } = require('../db') as typeof import('../db');
   const { setSetting } = require('../settings') as typeof import('../settings');
@@ -139,6 +152,9 @@ if (!DB) {
     } finally {
       await new Promise<void>((r) => appServer.close(() => r()));
       await new Promise<void>((r) => evoFake.close(() => r()));
+      // O ioredis reconecta para sempre: sem derrubar, o processo não encerra e
+      // a suíte VERDE é relatada como falha por timeout do arquivo.
+      await closeQueues();
       await closePool();
     }
   });

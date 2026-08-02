@@ -27,7 +27,8 @@ import {
   distribuicaoPorHora, coberturaPorGrupo, perfilDeEscolha,
 } from './intel/report';
 import { redeDeGrupos, nichoDosGrupos } from './intel/rede';
-import { sincronizarCategorias, categoriasGuardadas } from './shopee/categorias';
+import { sincronizarCategorias, categoriasGuardadas, semearEtiquetas, normalizarEtiqueta } from './shopee/categorias';
+import { comCache, limparCache, TTL_GRUPOS } from './cache';
 
 /**
  * API do backend (roda no VPS). Serve:
@@ -577,6 +578,8 @@ app.post('/api/instances/:name/groups', wrap(async (req: Request, res: Response)
     }
   }
 
+  // O grupo acabou de nascer: sem invalidar, ele sumiria da lista por 5 min.
+  await limparCache(`grupos:${instancia}`);
   res.json({ jid, subject, inviteUrl, passos });
 }));
 
@@ -606,7 +609,13 @@ app.post('/api/instances/:name/webhook', wrap(async (req: Request, res: Response
  * cruzamento, descobrir "esse grupo já está ligado?" exigia comparar jid na mão
  * entre duas telas.
  */
-app.get('/api/numeros', wrap(async (_req: Request, res: Response) => {
+app.get('/api/numeros', wrap(async (req: Request, res: Response) => {
+  /*
+   * `?atualizar=1` pula o cache — é o botão "atualizar" da tela. Sem essa
+   * saída, o usuário que acabou de entrar num grupo ficaria olhando uma lista
+   * velha por 5 minutos sem entender por quê.
+   */
+  const forcar = String(req.query.atualizar ?? '') === '1';
   const evo = await getEvolution();
   const canais = await query<{
     id: string; role: string; instance_ref: string; target_ref: string | null;
@@ -650,9 +659,21 @@ app.get('/api/numeros', wrap(async (_req: Request, res: Response) => {
      */
     let grupos: Array<{ id: string; subject: string }> = [];
     let erroGrupos: string | undefined;
+    let doCache = false;
     if (conectada) {
       try {
-        grupos = await evo.fetchAllGroups(nome);
+        /*
+         * CACHE: `fetchAllGroups` percorre a lista inteira no WhatsApp e leva
+         * segundos com muitos grupos — a tela ficava parada em "carregando"
+         * toda vez que era aberta, para responder algo que quase não muda.
+         * Só o resultado BOM é guardado (ver `cache.ts`): erro cacheado ficaria
+         * congelado pelo TTL inteiro.
+         */
+        const r = await comCache(
+          `grupos:${nome}`, TTL_GRUPOS, () => evo.fetchAllGroups(nome), forcar,
+        );
+        grupos = r.valor;
+        doCache = r.doCache;
       } catch (err) {
         erroGrupos = err instanceof Error ? err.message : String(err);
       }
@@ -664,6 +685,7 @@ app.get('/api/numeros', wrap(async (_req: Request, res: Response) => {
       numero: String(inst.ownerJid ?? inst.owner ?? '').replace(/\D/g, '') || null,
       perfil: inst.profileName ?? null,
       erroGrupos,
+      doCache,
       grupos: grupos.map((g) => {
         const canal = porJid.get(g.id);
         const obs = obsPorJid.get(g.id);
@@ -712,10 +734,65 @@ app.get('/api/intel/nicho', wrap(async (req: Request, res: Response) => {
   res.json({ ...dados, arvoreSincronizada: catsNoBanco > 0, categoriasConhecidas: catsNoBanco });
 }));
 
+/* ==================== ETIQUETAS DE ASSUNTO ==================== */
+
+/** Catálogo de etiquetas: o que veio da Shopee e o que o dono cadastrou. */
+app.get('/api/intel/etiquetas', wrap(async (_req: Request, res: Response) => {
+  res.json(await query(
+    `SELECT e.id::text, e.nome, e.origem,
+            (SELECT count(*) FROM intel_groups g WHERE g.etiqueta_id = e.id)::int AS grupos
+       FROM etiquetas_grupo e ORDER BY e.origem DESC, e.nome`,
+  ));
+}));
+
+/**
+ * Cadastra uma etiqueta nova.
+ *
+ * Devolve `jaExistia` em vez de erro quando o nome bate com uma existente: o
+ * dono digitou "esportes" e já havia "Esportes" — isso não é falha dele, e
+ * tratar como erro faria parecer que o cadastro não funciona. Devolvemos a que
+ * já existe para a tela poder simplesmente selecioná-la.
+ */
+app.post('/api/intel/etiquetas', wrap(async (req: Request, res: Response) => {
+  const nome = String(req.body?.nome ?? '').trim();
+  if (nome.length < 2) return res.status(400).json({ error: 'dê um nome com pelo menos 2 letras' });
+  if (nome.length > 40) return res.status(400).json({ error: 'nome muito longo (máx. 40)' });
+  const norm = normalizarEtiqueta(nome);
+
+  const existente = await queryOne<{ id: string; nome: string }>(
+    `SELECT id::text, nome FROM etiquetas_grupo WHERE nome_norm = $1`, [norm],
+  );
+  if (existente) return res.json({ ...existente, jaExistia: true });
+
+  const nova = await queryOne<{ id: string; nome: string }>(
+    `INSERT INTO etiquetas_grupo (nome, nome_norm, origem) VALUES ($1,$2,'usuario')
+     RETURNING id::text, nome`,
+    [nome, norm],
+  );
+  log.info('etiqueta de assunto cadastrada', { nome });
+  res.json({ ...nova!, jaExistia: false });
+}));
+
+/** Remove uma etiqueta do catálogo (os grupos que a usavam ficam sem etiqueta). */
+app.delete('/api/intel/etiquetas/:id', wrap(async (req: Request, res: Response) => {
+  const r = await query(
+    `DELETE FROM etiquetas_grupo WHERE id = $1 AND origem = 'usuario' RETURNING id`,
+    [req.params.id],
+  );
+  if (!r.length) {
+    return res.status(400).json({ error: 'etiqueta não encontrada, ou é uma das que vieram da Shopee' });
+  }
+  res.json({ ok: true });
+}));
+
 /** Baixa a árvore oficial de categorias da Shopee (público, sem credencial). */
 app.post('/api/shopee/categorias/sync', wrap(async (_req: Request, res: Response) => {
   try {
-    res.json({ ok: true, ...(await sincronizarCategorias()) });
+    const r = await sincronizarCategorias();
+    // Semeia o catálogo de etiquetas junto: sem isso a lista de assunto nasce
+    // vazia mesmo com as 31 categorias já baixadas.
+    const etiquetas = await semearEtiquetas();
+    res.json({ ok: true, ...r, etiquetas });
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
   }
@@ -1018,9 +1095,12 @@ app.put('/api/settings', wrap(async (req: Request, res: Response) => {
 app.get('/api/intel/groups', wrap(async (_req: Request, res: Response) => {
   res.json(
     await query(
-      `SELECT id, group_jid, display_name, kind, instance_ref, is_active, notes,
-              posts_count, last_post_at, created_at
-         FROM intel_groups ORDER BY is_active DESC, posts_count DESC, created_at`,
+      `SELECT g.id, g.group_jid, g.display_name, g.kind, g.instance_ref, g.is_active, g.notes,
+              g.posts_count, g.last_post_at, g.created_at,
+              g.etiqueta_id::text AS etiqueta_id, e.nome AS etiqueta
+         FROM intel_groups g
+         LEFT JOIN etiquetas_grupo e ON e.id = g.etiqueta_id
+        ORDER BY g.is_active DESC, g.posts_count DESC, g.created_at`,
     ),
   );
 }));
@@ -1087,6 +1167,16 @@ app.patch('/api/intel/groups/:id', wrap(async (req: Request, res: Response) => {
   if (TIPOS_GRUPO.includes(req.body?.kind)) {
     params.push(req.body.kind);
     campos.push(`kind = $${params.length}`);
+  }
+  /*
+   * `etiqueta_id` aceita null de propósito — "sem assunto definido" é um estado
+   * legítimo, e sem essa saída o dono não conseguiria desfazer uma marcação
+   * errada.
+   */
+  if ('etiqueta_id' in (req.body ?? {})) {
+    const v = req.body.etiqueta_id;
+    params.push(v === null || v === '' ? null : String(v));
+    campos.push(`etiqueta_id = $${params.length}`);
   }
   if (typeof req.body?.display_name === 'string') {
     params.push(req.body.display_name);

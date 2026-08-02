@@ -9,7 +9,7 @@ import { runCaptureExclusivo } from './capture/shopeeFeed';
 import { runSweepExclusivo, podarObservacoes } from './intel/observe';
 import { matchPendingPosts } from './intel/match';
 import { migrate } from './migrate';
-import { sincronizarCategorias, categoriasGuardadas } from './shopee/categorias';
+import { sincronizarCategorias, categoriasGuardadas, semearEtiquetas } from './shopee/categorias';
 
 /**
  * Processo de background: consome filas (process, drip), roda a captura por cron
@@ -32,6 +32,8 @@ async function main(): Promise<void> {
    */
   try {
     if ((await categoriasGuardadas()) === 0) await sincronizarCategorias();
+    // Idempotente: só insere o que falta, e nunca sobrescreve renomeação do dono.
+    await semearEtiquetas();
   } catch (err) {
     log.warn('não consegui baixar a árvore de categorias da Shopee', {
       err: err instanceof Error ? err.message : String(err),

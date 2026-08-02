@@ -147,3 +147,51 @@ export async function resolverCategoriasEmLote(
   }
   return saida;
 }
+
+/**
+ * Semeia o catálogo de ETIQUETAS DE ASSUNTO com as categorias de nível 1 da
+ * Shopee.
+ *
+ * O catálogo poderia começar vazio, mas aí o primeiro uso seria "digite e
+ * cadastre" 31 vezes para chegar a uma lista que a Shopee já publica. Marcadas
+ * com `origem='shopee'` para o painel poder distinguir o que veio de fábrica do
+ * que o dono acrescentou.
+ *
+ * `ON CONFLICT DO NOTHING`: rodar de novo não duplica nem sobrescreve uma
+ * etiqueta que o dono tenha renomeado.
+ */
+export async function semearEtiquetas(): Promise<number> {
+  const cats = await query<{ nome: string }>(
+    `SELECT nome FROM shopee_categories WHERE nivel = 1 ORDER BY cat_id`,
+  );
+  if (!cats.length) return 0;
+  /*
+   * Normaliza em JS, não em SQL: a regra de comparação de nome já existe em
+   * `normalizarEtiqueta` e é a MESMA que o cadastro pelo painel usa. Duas
+   * normalizações diferentes fariam "Beleza" cadastrada aqui e "beleza"
+   * digitada lá virarem duas etiquetas — exatamente o que o índice único
+   * deveria impedir.
+   */
+  const vals = cats.map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2}, 'shopee')`).join(',');
+  const params = cats.flatMap((c) => [c.nome, normalizarEtiqueta(c.nome)]);
+  const r = await query<{ id: string }>(
+    `INSERT INTO etiquetas_grupo (nome, nome_norm, origem) VALUES ${vals}
+     ON CONFLICT (nome_norm) DO NOTHING RETURNING id`,
+    params,
+  );
+  return r.length;
+}
+
+/**
+ * Chave de comparação de nome de etiqueta: minúscula, sem acento, sem espaço
+ * sobrando. É o que impede "Esportes", "esportes" e "ESPORTES " de virarem três
+ * etiquetas — o dono digitaria de novo achando que o cadastro falhou.
+ */
+export function normalizarEtiqueta(nome: string): string {
+  return String(nome ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ');
+}

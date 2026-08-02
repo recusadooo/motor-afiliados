@@ -140,7 +140,7 @@
   padding: 5px 10px 5px 6px;
   background: transparent;
   border: 1px solid var(--regra, #C9C9C2);
-  border-radius: 999px;
+  border-radius: 0;              /* retangular, a pedido do dono */
   cursor: pointer;
   font: inherit;
   font-size: 0.66rem;
@@ -154,7 +154,7 @@
 .interruptor .i-trilho {
   width: 30px;
   height: 17px;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--regra, #C9C9C2);
   position: relative;
   transition: background-color 0.16s;
@@ -166,7 +166,7 @@
   left: 2px;
   width: 13px;
   height: 13px;
-  border-radius: 50%;
+  border-radius: 0;
   background: var(--papel, #F2F2EF);
   transition: transform 0.16s;
 }
@@ -226,3 +226,104 @@
 /* A Shopee ganha destaque porque é a única loja com que o motor compete —
    as outras são contexto, não concorrência direta. */
 .fatia-plat.shopee { border-color: var(--ambar, #B26B00); color: var(--ambar, #B26B00); }
+
+/* ============================================================
+   DIÁLOGO DENTRO DA PÁGINA
+   ============================================================
+   Substitui `alert()`/`confirm()` do navegador. O nativo aparece
+   colado no topo da janela, estampa "cupom.trakads.cloud diz" —
+   que é o navegador falando, não o app — e trava a página toda.
+   Num aviso do tipo "isso leva alguns minutos", travar é
+   exatamente a mensagem errada.
+   ============================================================ */
+.sobreposicao {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(25, 27, 30, 0.42);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  animation: surge 0.12s ease-out;
+}
+@keyframes surge { from { opacity: 0; } }
+
+.dialogo {
+  position: relative;
+  width: min(480px, 100%);
+  background: var(--papel, #F2F2EF);
+  border: 1px solid var(--tinta, #191B1E);
+  padding: 28px 26px 22px;
+  animation: sobe 0.14s ease-out;
+}
+@keyframes sobe { from { transform: translateY(6px); opacity: 0; } }
+
+/* Uma régua no topo diz o TOM sem gastar cor no texto: verde é
+   informação, vermelho é falha, âmbar é decisão destrutiva. */
+.dialogo::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--verde, #1E7A3C);
+}
+.dialogo.erro::before { background: var(--corte, #A32A1B); }
+.dialogo.perigo::before { background: var(--ambar, #B26B00); }
+
+.dlg-x {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  background: transparent;
+  border: 0;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--tinta-3, #5A5E63);
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.dlg-x:hover { color: var(--tinta, #191B1E); }
+
+.dlg-titulo {
+  font-family: var(--display, inherit);
+  font-weight: 600;
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+  margin: 0 0 10px;
+  padding-right: 28px;
+}
+.dlg-texto { margin: 0 0 10px; font-size: 0.86rem; line-height: 1.65; }
+
+/* O detalhe é onde mora "pode fechar a tela?" — a dúvida que um
+   aviso de processo demorado sempre gera e que o alert nativo
+   nunca teve espaço para responder. */
+.dlg-detalhe {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.6;
+  color: var(--tinta-3, #5A5E63);
+  border-left: 2px solid var(--regra, #C9C9C2);
+  padding-left: 12px;
+}
+
+.dlg-acoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+@media (max-width: 460px) {
+  .dialogo { padding: 24px 18px 18px; }
+  .dlg-acoes { flex-direction: column-reverse; }
+  .dlg-acoes .btn { width: 100%; }
+}
+
+/* ---------- campo de assunto do grupo ----------
+   Select + "nova" lado a lado: cadastrar é a exceção, então o botão fica
+   discreto ao lado da escolha normal, não como ação de primeira linha. */
+.campo-etiqueta { display: flex; gap: 6px; align-items: center; }
+.campo-etiqueta select { font-size: 12px; padding: 5px 8px; min-width: 130px; }
+
+/* O campo dentro do diálogo herda o input do tema, só ganha respiro. */
+.dialogo input { margin-top: 4px; }
