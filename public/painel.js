@@ -847,8 +847,13 @@ async function carregarCanais() {
   const rows = await api('/api/channels');
   const alvo = $('lista-canais');
   if (!rows.length) {
-    alvo.innerHTML = vazio('Nenhum número cadastrado',
-      'Conecte um número acima e escolha os grupos onde ele vai disparar. Enquanto não houver nenhum, o motor captura e mede preço, mas não entrega nada.');
+    /*
+     * A frase fala de CANAL, que é o que esta lista mostra. Dizer "nenhum
+     * número cadastrado" logo abaixo de um número conectado e visível fazia o
+     * painel contradizer a tela dele mesmo.
+     */
+    alvo.innerHTML = vazio('Nenhum grupo de disparo registrado',
+      'Seus números aparecem acima. Ligue o interruptor "Disparo" no grupo onde o motor deve postar — enquanto não houver nenhum, ele captura e mede preço, mas não entrega nada.');
     return;
   }
   alvo.innerHTML = rows.map((c) => {
@@ -1327,9 +1332,36 @@ async function alternarDisparo(botao) {
 
 /* ==================== SEUS NÚMEROS (Conexões) ==================== */
 
+/*
+ * Painel de STATUS por número, não uma lista de grupos.
+ *
+ * A versão anterior listava os grupos e mais nada — o dono abria a tela e ela
+ * não respondia a pergunta que o trouxe ali: "como está esse número?". Agora
+ * cada número diz, de cima para baixo: se está conectado, se foi banido, para
+ * quantos grupos dispara, quantos observa, quanto já saiu hoje e quando foi o
+ * último envio. Os grupos vêm depois, como detalhe.
+ */
+
+/** Estado da conexão em linguagem de dono, não da Evolution. */
+function estadoDoNumero(n) {
+  if (n.banido) {
+    return { rot: 'BANIDO', cls: 'corte', exp: 'Algum canal desse número foi marcado como banido. Ele não vai entregar nada.' };
+  }
+  if (n.conectada) {
+    return { rot: 'CONECTADO', cls: 'feito', exp: 'Sessão ativa no WhatsApp.' };
+  }
+  return {
+    rot: 'DESCONECTADO',
+    cls: 'neutro',
+    exp: 'A sessão caiu ou nunca foi aberta. Pode ser celular sem internet — releia o QR em "Conectar ou criar" se persistir.',
+  };
+}
+
 async function carregarNumeros(forcar) {
-  const r = await api('/api/numeros' + (forcar ? '?atualizar=1' : ''));
   const alvo = $('numeros');
+  if (!alvo) return;
+  const r = await api('/api/numeros' + (forcar ? '?atualizar=1' : ''));
+
   if (r.evolutionConfigurada === false) {
     alvo.innerHTML = vazio('Evolution ainda não configurada',
       r.aviso || 'Preencha a URL e a chave em Config para o painel enxergar seus números.',
@@ -1338,18 +1370,35 @@ async function carregarNumeros(forcar) {
   }
   if (r.error) { alvo.innerHTML = vazio('Não consegui falar com a Evolution', r.error); return; }
   if (!r.numeros.length) {
-    alvo.innerHTML = vazio('Nenhum número na Evolution', 'Crie uma instância no bloco abaixo e leia o QR.');
+    alvo.innerHTML = vazio('Nenhum número na Evolution',
+      'Crie uma instância e leia o QR para o motor ter por onde falar.',
+      '<button class="btn" data-tela="conectar">Conectar um número</button>');
     return;
   }
+
   alvo.innerHTML = r.numeros.map((n) => {
+    const e = estadoDoNumero(n);
+
+    /*
+     * As quatro medidas ficam SEMPRE visíveis, inclusive em zero. "0 grupos de
+     * disparo" é justamente o diagnóstico mais importante desta tela — some se
+     * a gente só mostrar o que existe.
+     */
+    const placas =
+      '<div class="grade-fila">' +
+      '<div class="placa"><span class="rot">dispara para</span><span class="num">' + n.disparo + '</span>' +
+      '<span class="rot">' + (n.pausados ? n.pausados + ' pausado(s)' : 'grupo(s)') + '</span></div>' +
+      '<div class="placa"><span class="rot">observando</span><span class="num">' + n.observados + '</span>' +
+      '<span class="rot">grupo(s)</span></div>' +
+      '<div class="placa ' + (n.enviadasHoje ? 'feito' : '') + '"><span class="rot">enviadas hoje</span>' +
+      '<span class="num">' + n.enviadasHoje + '</span>' +
+      '<span class="rot">' + (n.ultimoEnvio ? 'última ' + esc(dataHora(n.ultimoEnvio)) : 'nunca enviou') + '</span></div>' +
+      '<div class="placa"><span class="rot">participa de</span><span class="num">' + n.grupos.length + '</span>' +
+      '<span class="rot">grupo(s) no total</span></div>' +
+      '</div>';
+
     const grupos = n.grupos.length
       ? n.grupos.map((g) => {
-          /*
-           * Dois interruptores por grupo, e nada de etiqueta separada: o estado
-           * está no próprio controle. Antes havia uma etiqueta ("dispara",
-           * "observado") mais um botão de ação — duas coisas dizendo a mesma
-           * verdade, que podiam discordar enquanto a tela não recarregava.
-           */
           const tipo = g.canalId ? 'proprio' : 'promo';
           const bDisparo = interruptor(
             !!(g.canalId && g.canalStatus === 'active'),
@@ -1361,23 +1410,33 @@ async function carregarNumeros(forcar) {
             'data-obs-jid="' + esc(g.jid) + '" data-obs-inst="' + esc(n.instancia) +
             '" data-obs-nome="' + esc(g.nome) + '" data-obs-tipo="' + tipo + '"',
             'Observar');
-          const extra = g.observado
-            ? '<span class="tag eles">' + esc(g.observado.kind) + '</span>'
-            : '';
-          return '<div class="linha-grupo"><div><b>' + esc(g.nome) + '</b> ' + extra +
+          const marca = g.canalStatus === 'banned'
+            ? ' <span class="tag corte">banido</span>'
+            : (g.canalStatus === 'paused' ? ' <span class="tag neutro">pausado</span>' : '');
+          return '<div class="linha-grupo"><div><b>' + esc(g.nome) + '</b>' + marca +
             '<div class="nota mono">' + esc(g.jid) + '</div></div>' +
             '<div class="acoes compacta">' + bDisparo + bObs + '</div></div>';
         }).join('')
-      : '<div class="nota" style="padding:8px">' +
+      : '<div class="nota" style="padding:10px">' +
         (n.conectada
           ? (n.erroGrupos ? 'erro ao listar grupos: ' + esc(n.erroGrupos) : 'esse número não está em nenhum grupo')
           : 'ligue o número para ver os grupos') + '</div>';
-    return '<details class="painel dobravel numero"' + (n.conectada ? ' open' : '') + '>' +
-      '<summary><span class="led ' + (n.conectada ? 'on' : 'off') + '"></span> <b>' + esc(n.instancia) + '</b> ' +
-      '<span class="tag ' + (n.conectada ? 'feito' : 'neutro') + '">' + (n.conectada ? 'conectado' : esc(String(n.estado))) + '</span> ' +
-      '<span class="nota mono">' + (n.numero ? '+' + esc(n.numero) : 'sem número') + '</span> ' +
-      '<span class="nota">' + n.grupos.length + ' grupo(s)</span></summary>' +
-      '<div class="lista-grupos-num">' + grupos + '</div></details>';
+
+    return '<div class="painel cartao-numero">' +
+      '<div class="cabeca-numero">' +
+      '<span class="led ' + (n.conectada && !n.banido ? '' : 'off') + '"></span>' +
+      '<b class="t-titulo" style="margin:0">' + esc(n.instancia) + '</b>' +
+      '<span class="tag ' + e.cls + '">' + e.rot + '</span>' +
+      '<span class="nota mono">' + (n.numero ? '+' + esc(n.numero) : 'sem número') + '</span>' +
+      (n.perfil ? '<span class="nota">' + esc(n.perfil) + '</span>' : '') +
+      (n.doCache ? '<span class="nota" title="lista de grupos vinda do cache">· em cache</span>' : '') +
+      '</div>' +
+      '<div class="nota">' + e.exp + '</div>' +
+      placas +
+      '<details class="dobravel" style="margin-top:14px"><summary><span class="t-dado">grupos deste número (' +
+      n.grupos.length + ')</span></summary>' +
+      '<div class="lista-grupos-num">' + grupos + '</div></details>' +
+      '</div>';
   }).join('');
 }
 

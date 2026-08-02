@@ -327,3 +327,17 @@
 
 /* O campo dentro do diálogo herda o input do tema, só ganha respiro. */
 .dialogo input { margin-top: 4px; }
+
+/* ---------- cartão de status do número ----------
+   O número é uma ENTIDADE com estado, não um cabeçalho de lista. Por isso vira
+   cartão com as medidas na frente e os grupos recolhidos: a pergunta que traz
+   o dono aqui é "como está esse número?", e a lista de grupos é o detalhe que
+   vem depois da resposta. */
+.cartao-numero + .cartao-numero { margin-top: 14px; }
+.cabeca-numero {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding-bottom: 10px; border-bottom: 1px solid var(--regra, #C9C9C2);
+  margin-bottom: 10px;
+}
+.cartao-numero .grade-fila { margin: 12px 0 0; }
+.cartao-numero .lista-grupos-num { margin-top: 10px; background: var(--well, #EAEAE5); }

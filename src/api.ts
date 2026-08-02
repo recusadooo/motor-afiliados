@@ -647,6 +647,32 @@ app.get('/api/numeros', wrap(async (req: Request, res: Response) => {
     });
   }
 
+  /*
+   * Resumo por INSTÂNCIA, para a tela poder responder "como está esse número?"
+   * sem o dono ter que cruzar três seções. Vem do banco, não da Evolution:
+   * disparo, pausa, banimento e último envio são fatos NOSSOS.
+   */
+  const resumo = await query<{
+    instance_ref: string; disparo: string; pausados: string; banidos: string;
+    escuta: string; enviadas_hoje: string; ultimo_envio: string | null;
+  }>(
+    `SELECT c.instance_ref,
+            count(*) FILTER (WHERE c.role='poster'   AND c.status='active')::text  AS disparo,
+            count(*) FILTER (WHERE c.role='poster'   AND c.status='paused')::text  AS pausados,
+            count(*) FILTER (WHERE c.status='banned')::text                        AS banidos,
+            count(*) FILTER (WHERE c.role='listener' AND c.status='active')::text  AS escuta,
+            (SELECT count(*)::text FROM send_logs s
+              JOIN channels c2 ON c2.id = s.channel_id
+             WHERE c2.instance_ref = c.instance_ref AND s.status='sent'
+               AND s.sent_at >= date_trunc('day', now() AT TIME ZONE 'America/Sao_Paulo')
+                                AT TIME ZONE 'America/Sao_Paulo')                  AS enviadas_hoje,
+            (SELECT max(s.sent_at)::text FROM send_logs s
+              JOIN channels c3 ON c3.id = s.channel_id
+             WHERE c3.instance_ref = c.instance_ref AND s.status='sent')           AS ultimo_envio
+       FROM channels c GROUP BY c.instance_ref`,
+  );
+  const porInstancia = new Map(resumo.map((r) => [r.instance_ref, r]));
+
   const numeros = [];
   for (const inst of instancias) {
     const nome = String(inst.name ?? inst.instanceName ?? '');
@@ -678,10 +704,26 @@ app.get('/api/numeros', wrap(async (req: Request, res: Response) => {
         erroGrupos = err instanceof Error ? err.message : String(err);
       }
     }
+    const r = porInstancia.get(nome);
+    // Nome próprio: `observados` já existe no escopo de fora (a lista crua).
+    const qtdObservados = grupos.filter((g) => obsPorJid.get(g.id)?.is_active).length;
     numeros.push({
       instancia: nome,
       conectada,
       estado: inst.connectionStatus ?? inst.state ?? 'desconhecido',
+      /*
+       * `banido` vem do NOSSO registro (`channels.status='banned'`), não da
+       * Evolution: ela só sabe dizer que a sessão caiu, e sessão caída pode ser
+       * celular sem bateria. Banimento é conclusão nossa, e confundir os dois
+       * faria o painel gritar "banido" a cada queda de conexão.
+       */
+      banido: Number(r?.banidos ?? 0) > 0,
+      disparo: Number(r?.disparo ?? 0),
+      pausados: Number(r?.pausados ?? 0),
+      escuta: Number(r?.escuta ?? 0),
+      observados: qtdObservados,
+      enviadasHoje: Number(r?.enviadas_hoje ?? 0),
+      ultimoEnvio: r?.ultimo_envio ?? null,
       numero: String(inst.ownerJid ?? inst.owner ?? '').replace(/\D/g, '') || null,
       perfil: inst.profileName ?? null,
       erroGrupos,
