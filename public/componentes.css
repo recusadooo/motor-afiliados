@@ -444,3 +444,110 @@
   flex-wrap: wrap;
 }
 .linha-item.compacta .corpo { flex: 1 1 260px; min-width: 0; }
+
+/* ============================================================
+   MONITOR DE PREÇOS
+   ============================================================ */
+
+.preco-linha { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 4px 0; }
+.preco-agora { font-family: var(--display, inherit); font-size: 1.15rem; font-weight: 600; }
+
+/* A queda usa VERDE (concluído/positivo), não âmbar: aqui ela é a boa notícia,
+   e o âmbar já carrega "atenção" no resto do painel. */
+.queda {
+  font-size: 0.72rem; font-weight: 600; padding: 2px 8px;
+  border: 1px solid var(--verde, #1E7A3C); color: var(--verde, #1E7A3C);
+}
+
+/*
+ * A SÉRIE EM DEGRAUS.
+ * `vector-effect: non-scaling-stroke` porque o viewBox é esticado sem preservar
+ * proporção (preço no eixo Y, tempo no X — não faria sentido preservar): sem
+ * isso o traço fica grosso na horizontal e fino na vertical, e a linha do
+ * mínimo some.
+ */
+.grafico-preco {
+  width: 100%; height: 160px; display: block;
+  background: var(--well, #EAEAE5); border: 1px solid var(--regra, #C9C9C2);
+}
+.grafico-preco .degraus {
+  fill: none; stroke: var(--tinta, #191B1E); stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+}
+/* O mínimo histórico é a única referência que merece linha própria: é contra
+   ele que "está barato?" se responde. */
+.grafico-preco .linha-min {
+  stroke: var(--verde, #1E7A3C); stroke-width: 1; stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+.eixo-preco {
+  display: flex; justify-content: space-between;
+  font-family: var(--mono); font-size: 0.64rem; color: var(--tinta-3, #5A5E63);
+  margin-top: 4px;
+}
+
+.linha-item[data-pm-produto] { cursor: pointer; }
+.linha-item[data-pm-produto]:hover { background: var(--nos-fraco, rgba(178,107,0,0.10)); }
+
+/* ---------- moldura do gráfico ----------
+   `position: relative` porque os rótulos de preço são HTML posicionado por
+   cima, e não `<text>` dentro do SVG: com `preserveAspectRatio="none"` o
+   viewBox é esticado na horizontal, e texto esticado fica deformado. Em HTML o
+   rótulo também herda os tokens de texto, que é onde a tipografia mora. */
+.grafico-envelope { position: relative; margin-top: 8px; }
+.rot-eixo {
+  position: absolute; right: 6px; transform: translateY(-50%);
+  font-family: var(--mono); font-size: 0.64rem; color: var(--tinta-3, #5A5E63);
+  background: var(--well, #EAEAE5); padding: 0 3px; pointer-events: none;
+}
+/* O rótulo do mínimo é o único que veste cor de dado: ele NOMEIA a linha verde,
+   e verde já significa a boa notícia no resto desta tela (ver `.queda`). Sem o
+   rótulo, a linha seria cor sozinha carregando significado. */
+.rot-eixo.menor { left: 6px; right: auto; color: var(--verde, #1E7A3C); font-weight: 600; }
+
+/* O alvo de hover é a coluna do dia inteira — invisível, e muito maior que o
+   traço de 1,6px, que ninguém consegue acertar com o mouse. */
+.alvo-dia { fill: transparent; }
+.alvo-dia:hover { fill: var(--nos-fraco, rgba(178, 107, 0, 0.10)); }
+
+/* ---------- faixa de cobertura ----------
+   FORA do gráfico de preço, de propósito. Ela responde "olhamos neste dia?",
+   que é categórico, não uma magnitude. Enquanto era a ALTURA de barras cuja
+   base começava no menor preço em vez de zero, ela deformava a leitura do
+   preço: comprimento de barra tem de medir a partir do zero, e uma queda de 3%
+   desenhava metade da altura da vizinha.
+
+   As três situações se distinguem por TEXTURA, não por tom de cinza: o
+   #8A8A83 do "herdado" dá 2,88:1 sobre o poço — abaixo do mínimo de 3:1 para
+   elemento gráfico. Medido com o validador, não estimado no olho. */
+/*
+ * Sem vão e sem largura mínima: com janela de 1 ano são 365 células, e
+ * `gap: 1px` + `min-width: 1px` somariam ~730px de largura MÍNIMA — a faixa
+ * estouraria a tela num celular. Contiguidade também é o que se quer aqui:
+ * numa faixa de cobertura, dias lidos em sequência devem ler como uma banda
+ * contínua interrompida pelas falhas, não como barras separadas (o vão de
+ * 2px vale para gráfico de barras, onde a magnitude de cada uma é o dado).
+ */
+.faixa-cobertura {
+  display: flex; gap: 0; height: 14px; margin-top: 6px; padding: 2px;
+  background: var(--well, #EAEAE5); border: 1px solid var(--regra, #C9C9C2);
+}
+.cob-dia { flex: 1 1 0; min-width: 0; }
+.cob-dia.lido { background: var(--tinta, #191B1E); }
+.cob-dia.herdado {
+  background: repeating-linear-gradient(45deg,
+    transparent 0 2px, var(--line-forte, #8A8A83) 2px 4px);
+}
+.cob-dia.sem-dado { box-shadow: inset 0 0 0 1px var(--regra, #C9C9C2); }
+
+/* Modificador do componente de legenda que já existe: amostra em BLOCO em vez
+   de traço, porque um traço de 3px não mostra textura. */
+.legenda-cores.blocos i { height: 10px; border-radius: 0; }
+.legenda-cores i.lido { background: var(--tinta, #191B1E); }
+.legenda-cores i.herdado {
+  background: repeating-linear-gradient(45deg,
+    transparent 0 2px, var(--line-forte, #8A8A83) 2px 4px);
+}
+.legenda-cores i.sem-dado { box-shadow: inset 0 0 0 1px var(--regra, #C9C9C2); }
+
+.subabas { margin: 4px 0 18px; }

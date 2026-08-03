@@ -23,7 +23,8 @@
     "test:grupo": "node --import tsx --test src/whatsapp/grupo.test.ts",
     "test:fila": "node --import tsx --test src/queue/fila.test.ts",
     "test:rede": "node --import tsx --test src/intel/rede.test.ts",
-    "test:etiquetas": "node --import tsx --test src/intel/etiquetas.test.ts"
+    "test:etiquetas": "node --import tsx --test src/intel/etiquetas.test.ts",
+    "test:precos": "node --import tsx --test src/monitor/precos.test.ts"
   },
   "dependencies": {
     "bullmq": "^5.34.0",

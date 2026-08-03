@@ -125,7 +125,10 @@ function abrir(secao, empurrar) {
 
 function carregarSecao(s) {
   if (s === 'visao') { guardar(carregarFunil, 'funil'); guardar(carregarPlacar, 'placar'); }
-  if (s === 'feed') { guardar(carregarFacetas, 'f-resumo'); guardar(carregarOfertas, 'ofertas'); }
+  if (s === 'feed') {
+    if (subAba === 'monitor') guardar(carregarPrecos, 'pm-lista');
+    else { guardar(carregarFacetas, 'f-resumo'); guardar(carregarOfertas, 'ofertas'); }
+  }
   if (s === 'ciclos') guardar(carregarCiclos, 'ciclos');
   if (s === 'inteligencia') { guardar(carregarInteligencia, 'travessia'); guardar(carregarRede, 'rede'); }
   if (s === 'grupos') { guardar(carregarGrupos, 'lista-grupos'); guardar(carregarIngestUrl, 'ingest-url'); guardar(carregarAddNumeros, 'add-numeros'); guardar(carregarNicho, 'nicho'); }
@@ -1778,6 +1781,358 @@ async function carregarRede() {
   alvo.innerHTML = aviso + '<div class="grade-origem">' + cartoes + '</div>' + rede;
 }
 
+/* ==================== SUB-ABAS DO FEED ==================== */
+
+/*
+ * O Feed responde "o que o motor capturou". O Monitor responde "quanto isso
+ * custava antes". Mesma matéria-prima, perguntas diferentes — e por isso
+ * sub-aba, não aba própria: quem está olhando uma oferta quer o histórico dela
+ * ali, não a três cliques de distância.
+ */
+let subAba = 'ofertas';
+
+function trocarSubAba(qual, empurrar = true) {
+  subAba = qual === 'monitor' ? 'monitor' : 'ofertas';
+  document.querySelectorAll('#feed-subabas .pilula').forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.subaba === subAba)));
+  $('sub-ofertas').style.display = subAba === 'ofertas' ? '' : 'none';
+  $('sub-monitor').style.display = subAba === 'monitor' ? '' : 'none';
+  // A sub-aba é rota de verdade: dá para linkar, o voltar do navegador funciona,
+  // e a tela existe sem depender de um clique para ser vista.
+  if (empurrar) {
+    const caminho = subAba === 'monitor' ? '/feed/monitor' : '/feed';
+    if (location.pathname !== caminho) history.pushState({ secao: 'feed', subAba }, '', caminho);
+  }
+  carregarSecao('feed');
+}
+
+/** Resolve caminho -> seção, entendendo a sub-aba do Feed. */
+function rotaDe(caminho) {
+  if (caminho === '/feed/monitor') { subAba = 'monitor'; return 'feed'; }
+  if (caminho === '/feed') subAba = 'ofertas';
+  return ROTA[caminho] || 'visao';
+}
+
+/* ==================== MONITOR DE PREÇOS ==================== */
+
+let pmConfiavel = false;
+let pmAberto = null;
+
+async function carregarPrecos() {
+  const dias = $('pm-janela').value;
+  const r = await api('/api/precos/oportunidades?dias=' + dias +
+    '&limite=40' + (pmConfiavel ? '&confiavel=1' : ''));
+
+  /*
+   * O RESUMO vem antes da lista de propósito. Um monitor de preço jovem tem
+   * pouco a dizer, e o dono precisa saber ANTES de ler qualquer ranking há
+   * quantos dias ele está coletando — senão lê "36% abaixo da média" apoiado
+   * em três dias e trata como verdade.
+   */
+  const s = r.resumo || {};
+  const desde = s.desde ? new Date(s.desde) : null;
+  const diasColetando = desde ? Math.max(1, Math.round((Date.now() - desde.getTime()) / 86400000)) : 0;
+  $('pm-resumo').innerHTML = [
+    ['produtos no monitor', inteiro(s.produtos)],
+    ['com série formada', inteiro(s.com_serie)],
+    ['mudanças de preço registradas', inteiro(s.pontos)],
+    ['coletando há', diasColetando + (diasColetando === 1 ? ' dia' : ' dias')],
+  ].map(([rot, val]) =>
+    // .n/.l é o vocabulário de .placar; .num/.rot só existe dentro de .grade-fila.
+    // Trocado, os spans ficam sem estilo e número e rótulo colam na mesma linha.
+    '<div class="placa"><div class="n">' + esc(val) + '</div><div class="l">' + rot + '</div></div>',
+  ).join('');
+
+  /*
+   * O AVISO de juventude é a peça mais importante desta tela nas primeiras
+   * semanas. O dono disse, com razão, que mostrar correlação de 3 dias é
+   * inútil — então a tela diz isso em voz alta em vez de deixar o número
+   * parecer maduro.
+   */
+  $('pm-aviso').innerHTML = diasColetando < 14
+    ? '<div class="nota alerta" style="margin:12px 0">O monitor está coletando há ' +
+      diasColetando + (diasColetando === 1 ? ' dia' : ' dias') +
+      '. Os números abaixo são reais, mas ainda descrevem uma janela curta — ' +
+      '"abaixo da média" com poucos dias de base diz mais sobre a coleta que sobre o mercado. ' +
+      'Isso melhora sozinho: nada precisa ser feito, só deixar rodar.</div>'
+    : '';
+
+  const linhas = r.oportunidades || [];
+  if (!linhas.length) {
+    $('pm-lista').innerHTML = vazio('Nenhuma oportunidade na janela',
+      Number(s.produtos) > 0
+        ? 'Há ' + s.produtos + ' produtos no monitor, mas nenhum está abaixo da própria média nesta janela. Tente uma janela maior.'
+        : 'O monitor ainda não tem produtos. Ele se alimenta da varredura de inteligência, que roda de 2 em 2 horas — ou importe agora o histórico já observado.');
+    return;
+  }
+
+  $('pm-lista').innerHTML = linhas.map((o) => {
+    const abaixo = Number(o.abaixo_pct);
+    const conf = o.confiavel === 'true' || o.confiavel === true;
+    return '<article class="linha-item ' + (o.image_url ? '' : 'sem-foto') + '" data-pm-produto="' + esc(o.product_id) + '">' +
+      (o.image_url ? '<img src="' + esc(o.image_url) + '" alt="" loading="lazy" />' : '') +
+      '<div class="corpo">' +
+      '<div class="t-titulo">' + esc(o.title || '(sem título)') + '</div>' +
+      '<div class="preco-linha"><b class="preco-agora">' + brl(o.preco_atual) + '</b>' +
+      '<span class="queda">▼ ' + (Number.isFinite(abaixo) ? abaixo.toFixed(0) : '?') + '%</span>' +
+      '<span class="nota">média ' + o.dias + 'd ' + brl(o.media) +
+      ' · mínimo ' + brl(o.preco_min) + '</span></div>' +
+      '<div class="meta">' +
+      /*
+       * A COBERTURA fica ao lado do número, não escondida. É ela que diz se o
+       * "36% abaixo" vale — e é justamente o que um comparador de preço
+       * costuma omitir.
+       */
+      '<span>' + (conf
+        ? '<span class="tag feito">' + o.dias + ' dias de histórico</span>'
+        : '<span class="tag neutro">só ' + o.dias + ' dia(s) — pouca base</span>') + '</span>' +
+      (o.cat_raiz ? '<span>' + esc(o.cat_raiz) + '</span>' : '') +
+      '<span>' + inteiro(o.mudancas) + ' mudanças</span></div>' +
+      '</div></article>';
+  }).join('');
+}
+
+/**
+ * A FICHA: a série em degraus.
+ *
+ * Degraus e não linha interpolada porque cada ponto é uma MUDANÇA — o preço
+ * ficou parado entre um e outro. Uma linha diagonal afirmaria uma transição
+ * suave que nunca existiu, e é exatamente o tipo de gráfico bonito que mente.
+ */
+async function abrirFichaPreco(productId) {
+  if (pmAberto === productId) { pmAberto = null; $('pm-ficha').innerHTML = ''; return; }
+  pmAberto = productId;
+  $('pm-ficha').innerHTML = '<div class="nota" style="padding:14px">carregando o histórico…</div>';
+  let f;
+  try {
+    f = await api('/api/precos/produto/' + encodeURIComponent(productId) + '?dias=' + $('pm-janela').value);
+  } catch (e) {
+    $('pm-ficha').innerHTML = '<div class="nota err" style="padding:14px">' + esc(e.message) + '</div>';
+    return;
+  }
+
+  /*
+   * A LINHA SAI DO `diario`, NÃO do log de mudanças — e é isso que mantém a
+   * faixa de cobertura alinhada com ela: as duas leem o MESMO array, no mesmo
+   * eixo de tempo. Desenhar a linha no eixo do log (que começa na primeira
+   * mudança dentro da janela) por cima de uma faixa que começa no início da
+   * janela alinharia visualmente duas escalas de tempo diferentes, e
+   * alinhamento visual afirma simultaneidade.
+   *
+   * `diario` já É uma função em degraus: cada dia carrega o preço vigente
+   * naquele dia, com `visto` dizendo se houve leitura própria.
+   */
+  const diario = f.diario || [];
+
+  /*
+   * `Number(null)` é 0, NÃO NaN — e `Number.isFinite(0)` é true. Dia anterior
+   * ao início do histórico vem como `preco: null`, então sem esta guarda cada
+   * um deles entrava no gráfico como R$ 0,00: o domínio do eixo passava a
+   * começar em zero, a linha inteira era esmagada numa faixa fina no topo e
+   * caía num penhasco até o chão. Com janela de 90 dias num monitor de poucos
+   * dias, isso é a MAIORIA dos dias de quase todo produto — não um canto.
+   */
+  const preco = (x) => (x == null || x === '' ? NaN : Number(x));
+
+  const comPreco = diario
+    .map((linha, i) => ({
+      i,
+      dia: linha.dia,
+      v: preco(linha.preco),
+      visto: linha.visto === 'true' || linha.visto === true,
+    }))
+    .filter((p) => Number.isFinite(p.v));
+
+  /*
+   * O DOMÍNIO do eixo Y inclui o mínimo e o máximo da JANELA — os mesmos
+   * números que as placas mostram acima. Duas razões, as duas necessárias:
+   * a linha do mínimo tem de CABER dentro do desenho (fora do domínio ela
+   * sairia do viewBox e desapareceria), e o eixo passa a ser derivável dos
+   * mesmos números que o dono lê logo acima, em vez de ser uma segunda conta
+   * capaz de divergir da primeira e contradizê-la na mesma tela.
+   */
+  const dominio = comPreco.map((p) => p.v)
+    .concat([f.minimo, f.maximo].map(preco).filter(Number.isFinite));
+  const pisoDado = dominio.length ? Math.min(...dominio) : 0;
+  const tetoDado = dominio.length ? Math.max(...dominio) : 1;
+
+  /*
+   * FOLGA de 8% além dos extremos, e ela não é estética.
+   *
+   * Sem folga, o mínimo da janela cai EXATAMENTE no piso do desenho: a linha do
+   * menor preço passa a coincidir com a borda inferior da moldura e deixa de
+   * ser lida como referência — vira o próprio quadro. O pico do máximo encosta
+   * na borda de cima pelo mesmo motivo. Com folga, as duas ficam dentro, e o
+   * rótulo pousa exato sobre a linha em vez de ter de ser empurrado para dentro.
+   */
+  const folga = ((tetoDado - pisoDado) || Math.abs(tetoDado) || 1) * 0.08;
+  const yMin = pisoDado - folga;
+  const yMax = tetoDado + folga;
+  const yFaixa = (yMax - yMin) || 1;
+
+  /*
+   * Viewbox largo e baixo, esticado sem preservar proporção (o CSS já conta
+   * por quê). A margem de 4 em cima e embaixo existe para o traço do extremo
+   * não ser cortado pela borda — sem ela, o preço máximo aparece serrado.
+   */
+  const W = 1000, H = 100, MARGEM = 4;
+  const px = (i) => (diario.length > 1 ? (i / (diario.length - 1)) * W : W / 2);
+  const py = (v) => MARGEM + (1 - (v - yMin) / yFaixa) * (H - MARGEM * 2);
+
+  /*
+   * DEGRAUS e não linha interpolada: anda na horizontal no preço ANTIGO e só
+   * então sobe ou desce. Uma diagonal afirmaria uma transição gradual que
+   * nunca existiu — o preço pulou.
+   */
+  let caminho = '';
+  comPreco.forEach((p, k) => {
+    const x = px(p.i);
+    if (k === 0) { caminho = 'M' + x.toFixed(1) + ',' + py(p.v).toFixed(1); return; }
+    caminho += ' L' + x.toFixed(1) + ',' + py(comPreco[k - 1].v).toFixed(1) +
+               ' L' + x.toFixed(1) + ',' + py(p.v).toFixed(1);
+  });
+  // O último preço vigora até hoje: prolonga até a borda em vez de parar no ar.
+  if (comPreco.length) {
+    caminho += ' L' + W + ',' + py(comPreco[comPreco.length - 1].v).toFixed(1);
+  }
+
+  /*
+   * Os rótulos nomeiam os extremos REAIS na altura real deles — não o teto e o
+   * piso do domínio, que agora têm folga. Rotular a moldura com o valor do dado
+   * seria afirmar um preço que nunca existiu.
+   */
+  const minJanela = Number.isFinite(preco(f.minimo)) ? preco(f.minimo) : pisoDado;
+  const maxJanela = Number.isFinite(preco(f.maximo)) ? preco(f.maximo) : tetoDado;
+  const yLinhaMin = dominio.length ? py(minJanela) : null;
+
+  /*
+   * ALVOS DE HOVER: um retângulo invisível por dia, com `<title>`. É o mesmo
+   * recurso que a travessia usa — sem biblioteca e sem estado — e resolve o
+   * problema de um gráfico de 90 dias em que não se consegue ler um dia
+   * específico. O alvo é a coluna inteira, muito maior que o traço.
+   */
+  const largDia = diario.length > 1 ? W / (diario.length - 1) : W;
+  const alvos = diario.map((linha, i) => {
+    const v = preco(linha.preco);
+    const visto = linha.visto === 'true' || linha.visto === true;
+    const rot = Number.isFinite(v)
+      ? linha.dia + ' · ' + brl(v) + (visto ? '' : ' · preço vigente, sem leitura nesse dia')
+      : linha.dia + ' · sem dado';
+    return '<rect class="alvo-dia" x="' + Math.max(0, px(i) - largDia / 2).toFixed(1) +
+      '" y="0" width="' + largDia.toFixed(1) + '" height="' + H + '">' +
+      '<title>' + esc(rot) + '</title></rect>';
+  }).join('');
+
+  /*
+   * A COBERTURA saiu de dentro do gráfico de preço e virou uma faixa própria.
+   *
+   * Antes ela era a ALTURA de barras cuja base começava no menor preço, não em
+   * zero: uma queda de 3% desenhava uma barra com metade da altura da vizinha.
+   * Comprimento de barra tem de medir magnitude a partir do zero; posição pode
+   * medir valor em qualquer faixa. Por isso o preço virou linha (posição) e a
+   * cobertura virou faixa categórica — cada uma na geometria que não mente.
+   *
+   * Lido / herdado / sem dado se distinguem por TEXTURA e vêm com legenda: o
+   * cinza do "herdado" dá 2,88:1 sobre o poço, abaixo do mínimo de 3:1 para
+   * elemento gráfico, então cor sozinha não podia carregar a distinção.
+   */
+  const cobertura = diario.map((linha) => {
+    const v = preco(linha.preco);
+    const visto = linha.visto === 'true' || linha.visto === true;
+    const cls = !Number.isFinite(v) ? 'sem-dado' : (visto ? 'lido' : 'herdado');
+    const rot = !Number.isFinite(v)
+      ? linha.dia + ' — sem dado'
+      : linha.dia + ' · ' + brl(v) + (visto ? ' · leitura nossa nesse dia' : ' · preço vigente, sem leitura');
+    return '<span class="cob-dia ' + cls + '" title="' + esc(rot) + '"></span>';
+  }).join('');
+
+  const grupos = (f.emGrupos || []).length
+    ? '<div class="poco" style="margin-top:10px">' + f.emGrupos.map((g) =>
+        '<div class="linha-grupo"><div><b>' + esc(g.grupo) + '</b>' +
+        (g.kind === 'proprio' ? ' <span class="tag nos">seu grupo</span>' : '') +
+        '<div class="nota">' + esc(dataHora(g.posted_at)) +
+        (g.preco_post ? ' · postaram por ' + brl(g.preco_post) : '') +
+        /* `duracao` e não `seg`: é o helper da casa ("1 h 30", não "1.5h"), o
+           mesmo que a travessia usa. E a checagem é `!= null` porque o lag vem
+           como TEXTO do SQL — com `g.lag` puro, um atraso de 0 s some quando
+           chega como número e aparece quando chega como "0". */
+        (g.lag != null
+          ? ' · ' + duracao(Math.abs(Number(g.lag))) +
+            (Number(g.lag) >= 0 ? ' depois que a API ofertou' : ' ANTES de a gente ver')
+          : '') +
+        '</div></div></div>').join('') + '</div>'
+    : '<div class="nota" style="padding:10px">Nenhum grupo observado postou este produto na janela.</div>';
+
+  const nossos = (f.nossosEnvios || []).length
+    ? '<div class="poco" style="margin-top:10px">' + f.nossosEnvios.map((e) =>
+        '<div class="linha-grupo"><div><b>' + esc(e.grupo || 'canal removido') + '</b>' +
+        '<div class="nota">' + esc(dataHora(e.sent_at)) +
+        (e.preco ? ' · enviado por ' + brl(e.preco) : '') + '</div></div></div>').join('') + '</div>'
+    : '';
+
+  /*
+   * Rótulo preso à altura do próprio valor, mas travado dentro do desenho: sem
+   * o teto, o rótulo do preço máximo (que fica a 4% do topo) sairia metade para
+   * fora da moldura.
+   */
+  const topoPct = (y) => Math.min(93, Math.max(7, (y / H) * 100)).toFixed(1);
+
+  $('pm-ficha').innerHTML =
+    '<h2 class="secao-titulo">histórico de ' + esc(f.title || productId) + '</h2>' +
+    '<div class="painel">' +
+    '<div class="grade-fila">' +
+    '<div class="placa"><span class="rot">agora</span><span class="num">' + brl(f.precoAtual) + '</span></div>' +
+    '<div class="placa"><span class="rot">média (' + f.janelaDias + 'd)</span><span class="num">' + brl(f.mediaPonderada) + '</span>' +
+    '<span class="rot">ponderada por tempo</span></div>' +
+    '<div class="placa"><span class="rot">menor</span><span class="num">' + brl(f.minimo) + '</span></div>' +
+    '<div class="placa"><span class="rot">maior</span><span class="num">' + brl(f.maximo) + '</span></div>' +
+    '</div>' +
+
+    '<h4 class="secao-titulo">preço no tempo</h4>' +
+    (comPreco.length
+      ? '<div class="grafico-envelope">' +
+          '<svg class="grafico-preco" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" ' +
+          'role="img" aria-label="Preço em degraus ao longo de ' + diario.length +
+          ' dias. Menor preço da janela: ' + brl(f.minimo) + '. Preço atual: ' + brl(f.precoAtual) + '.">' +
+          (yLinhaMin != null
+            ? '<line class="linha-min" x1="0" y1="' + yLinhaMin.toFixed(1) +
+              '" x2="' + W + '" y2="' + yLinhaMin.toFixed(1) + '"/>'
+            : '') +
+          '<path class="degraus" d="' + caminho + '"/>' +
+          alvos +
+          '</svg>' +
+          '<span class="rot-eixo" style="top:' + topoPct(py(maxJanela)) + '%">' + brl(maxJanela) + '</span>' +
+          (yLinhaMin != null
+            ? '<span class="rot-eixo menor" style="top:' + topoPct(yLinhaMin) + '%">menor ' +
+              brl(minJanela) + '</span>'
+            : '') +
+        '</div>' +
+        '<div class="eixo-preco"><span>' + esc(diario[0].dia) + '</span>' +
+        '<span>' + esc(diario[diario.length - 1].dia) + '</span></div>' +
+
+        '<div class="faixa-cobertura" role="img" aria-label="Cobertura por dia: ' +
+        f.diasCobertos + ' de ' + diario.length + ' dias com leitura própria">' + cobertura + '</div>' +
+        '<div class="legenda-cores blocos">' +
+          '<span><i class="lido"></i> leitura nossa</span>' +
+          '<span><i class="herdado"></i> preço vigente, sem leitura</span>' +
+          '<span><i class="sem-dado"></i> sem dado</span>' +
+        '</div>'
+      : '<div class="nota" style="padding:10px">Sem histórico ainda.</div>') +
+
+    '<div class="nota" style="margin-top:10px">' +
+    (f.confiavel
+      ? '<span class="ok">' + f.diasCobertos + ' dias com observação — base suficiente para comparar.</span>'
+      : '<span class="alerta">Só ' + f.diasCobertos + ' dia(s) com observação nesta janela. ' +
+        'Os números aparecem, mas ainda não sustentam "menor preço do período".</span>') +
+    '</div>' +
+
+    '<h4 class="secao-titulo">apareceu em grupo observado</h4>' + grupos +
+    (nossos ? '<h4 class="secao-titulo">o motor enviou</h4>' + nossos : '') +
+    '</div>';
+
+  $('pm-ficha').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
 /* ==================== FALHAS ==================== */
 
 /*
@@ -1871,6 +2226,17 @@ document.addEventListener('click', async (ev) => {
   if (addJid) return observarDaLista(addJid.dataset.addJid, addJid.dataset.addNome);
   if (ev.target.closest('#btn-add-recomecar')) return voltarAddNumero();
 
+  const sub = ev.target.closest('[data-subaba]');
+  if (sub) return trocarSubAba(sub.dataset.subaba);
+
+  const prod = ev.target.closest('[data-pm-produto]');
+  if (prod) return abrirFichaPreco(prod.dataset.pmProduto);
+  if (ev.target.closest('#pm-confiavel')) {
+    pmConfiavel = !pmConfiavel;
+    $('pm-confiavel').setAttribute('aria-pressed', String(pmConfiavel));
+    return carregarPrecos();
+  }
+
   const cartao = ev.target.closest('[data-tela]');
   if (cartao) return abrirSubtela(cartao.dataset.tela);
   if (ev.target.closest('[data-voltar-conexoes]')) return abrirSubtela(null);
@@ -1903,6 +2269,16 @@ document.addEventListener('click', async (ev) => {
 
   const acao = alvo.dataset.acao;
   if (acao === 'numeros') return carregarNumeros(true);
+  if (acao === 'pm-backfill') {
+    try {
+      const r = await enviar('/api/precos/backfill', 'POST');
+      await avisar('Histórico importado',
+        r.inseridas + ' pontos de preço trazidos do que já havia sido observado.',
+        'Isso dá ao monitor um passado no dia em que ele nasce. Mas atenção: são poucas horas de janela, não semanas — o histórico de verdade se forma com o tempo.');
+      carregarPrecos();
+    } catch (e) { avisarErro(e.message); }
+    return;
+  }
   if (acao === 'sync-cat') {
     try {
       const r = await enviar('/api/shopee/categorias/sync', 'POST');
@@ -2001,7 +2377,11 @@ function limparFiltros() {
 function ligar() {
   document.querySelectorAll('nav a').forEach((a) =>
     a.addEventListener('click', (ev) => { ev.preventDefault(); abrir(a.dataset.secao, true); }));
-  window.addEventListener('popstate', () => abrir(ROTA[location.pathname] || 'visao', false));
+  window.addEventListener('popstate', () => {
+    const secao = rotaDe(location.pathname);
+    trocarSubAba(subAba, false);
+    abrir(secao, false);
+  });
 
   $('btn-buscar').addEventListener('click', buscarAgora);
   $('btn-atualizar').addEventListener('click', recarregar);
@@ -2104,6 +2484,7 @@ function ligar() {
     if (!cNome()) return msg('c-msg', 'digite o nome exato da instância que já existe', 'err');
     passoConectar(3);
   });
+  $('pm-janela').addEventListener('change', () => { pmAberto = null; $('pm-ficha').innerHTML = ''; carregarPrecos(); });
   $('add-filtro').addEventListener('input', (e) => {
     if (addEscolhido) desenharAddGrupos(e.target.value);
   });
@@ -2223,7 +2604,11 @@ function ligar() {
 
 /* ==================== INÍCIO ==================== */
 ligar();
-abrir(ROTA[location.pathname] || 'visao', false);
+// rotaDe() DECIDE a sub-aba a partir do caminho; trocarSubAba() só a aplica.
+// Na ordem inversa, /feed/monitor abria em Ofertas.
+const secaoInicial = rotaDe(location.pathname);
+trocarSubAba(subAba, false);
+abrir(secaoInicial, false);
 guardar(pulso, 'estado-api');
 setInterval(() => {
   guardar(pulso, 'estado-api');

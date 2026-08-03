@@ -56,7 +56,16 @@
 
   <!-- ============ FEED ============ -->
   <section class="secao" id="secao-feed">
-    <h1 class="t-pagina">Feed de ofertas</h1>
+    <h1 class="t-pagina">Feed</h1>
+
+    <!-- Sub-abas: o Feed responde "o que o motor capturou"; o Monitor responde
+         "quanto isso custava antes". Mesma matéria-prima, perguntas diferentes. -->
+    <div class="alternar subabas" id="feed-subabas">
+      <button class="pilula" aria-pressed="true" data-subaba="ofertas">Ofertas</button>
+      <button class="pilula" aria-pressed="false" data-subaba="monitor">Monitor</button>
+    </div>
+
+    <div id="sub-ofertas">
     <p class="sub">Tudo que o motor capturou, com o preço que ele mesmo monitorou. Use os filtros
       para achar o que interessa — e para entender o que está sendo cortado.</p>
 
@@ -94,6 +103,35 @@
     </div>
 
     <div class="poco" id="ofertas"><div class="vazio"><h3>Carregando…</h3></div></div>
+    </div>
+
+    <!-- ======== SUB-ABA MONITOR ======== -->
+    <div id="sub-monitor" style="display:none">
+      <p class="sub">Cada produto comparado com o <b>próprio passado</b>. A pergunta: "está barato
+        mesmo, ou só está escrito que está?" — e a resposta melhora sozinha a cada dia que o
+        motor fica ligado.</p>
+<div class="acoes" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:16px">
+      <div style="max-width:170px"><label for="pm-janela">Janela</label><select id="pm-janela">
+        <option value="7">7 dias</option>
+        <option value="14">14 dias</option>
+        <option value="30">30 dias</option>
+        <option value="42">42 dias</option>
+        <option value="90" selected>90 dias</option>
+        <option value="180">180 dias</option>
+        <option value="365">1 ano</option>
+      </select></div>
+      <button class="pilula" id="pm-confiavel" aria-pressed="false">só com histórico suficiente</button>
+      <button class="btn fantasma pequeno" data-acao="pm-backfill">importar histórico já observado</button>
+    </div>
+
+    <div class="placar" id="pm-resumo"></div>
+    <div id="pm-aviso"></div>
+
+    <h2 class="secao-titulo">melhores oportunidades agora</h2>
+    <div class="poco" id="pm-lista"><div class="vazio"><h3>Carregando…</h3></div></div>
+
+    <div id="pm-ficha"></div>
+      </div>
   </section>
 
   <!-- ============ CICLOS ============ -->

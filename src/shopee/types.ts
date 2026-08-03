@@ -14,7 +14,20 @@ export interface ProductOfferNode {
    * (`shopee/categorias.ts`).
    */
   productCatIds?: Array<number | string> | null;
-  priceMin: string | number; // NÃO existe campo único 'price' — só faixa
+  /**
+   * Preço do item. O comentário anterior deste arquivo dizia "NÃO existe campo
+   * único 'price' — só faixa", e isso está ERRADO: o schema oficial declara
+   * `price: String!` (garantido) em `ProductOfferV2`. Nós é que não estávamos
+   * pedindo.
+   *
+   * Por que importa mais do que parece: `priceMin` é o piso da FAIXA de
+   * variações. Se o vendedor pendura uma capinha de R$ 9 no mesmo anúncio, o
+   * `priceMin` despenca e um monitor de preço anuncia recorde histórico de um
+   * produto que não baixou. Guardamos os três — `price` é a série, a faixa é o
+   * detector de que uma variação nova entrou.
+   */
+  price?: string | number | null;
+  priceMin: string | number;
   priceMax: string | number;
   priceDiscountRate: string | number | null; // % de desconto (anunciado)
   commissionRate: string | number; // decimal: 0.07 = 7%

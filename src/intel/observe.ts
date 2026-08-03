@@ -6,6 +6,7 @@ import { ShopeeApiError, ShopeeContaEmRiscoError, SHOPEE_ERROR_CODES } from '../
 import { normalizeProduct } from '../pipeline/normalize';
 import { normalizeText } from '../util';
 import { resolverCategoriasEmLote } from '../shopee/categorias';
+import { registrarLeituras } from '../monitor/precos';
 import type { NormalizedOffer, RejectResult } from '../types';
 import {
   matchesKeyword,
@@ -33,6 +34,11 @@ export interface SweepStats {
   fetched: number; // itens que a API devolveu (bruto, com repetição entre keywords)
   observed: number; // linhas realmente gravadas (após ON CONFLICT DO NOTHING)
   wouldPass: number; // produtos ÚNICOS que teriam passado nos filtros de produção (dedup por produto — ver `avaliadosNestaVarredura`)
+  /* Quantas leituras viraram LINHA no monitor. Se ~2.400 leituras produzem
+     ~200 linhas, o log de mudança está compactando como projetado; se produzir
+     2.400, a hipótese de estabilidade de preço estava errada e o custo de
+     armazenamento precisa ser revisto. */
+  precoGravados?: number;
   errors: number; // keywords que falharam (inclui a que disparou o abort, se houver)
   // Avaliações puladas do agregado por já terem contado o MESMO produto numa
   // keyword anterior desta varredura. Não é erro — mede a sobreposição entre
@@ -417,6 +423,39 @@ export async function runSweep(trigger = 'cron'): Promise<SweepStats> {
 
         if (sweepId && linhas.length > 0) {
           stats.observed += await inserirLote(sweepId, linhas);
+        }
+
+        /*
+         * MONITOR DE PREÇOS — a ingestão que custa ZERO chamadas à Shopee.
+         *
+         * Estas linhas já existem, já têm preço e já vieram da API. Antes eram
+         * usadas só para a correlação com os grupos e descartadas para efeito
+         * de histórico: o `price_history` só era escrito no `process.ts`, ou
+         * seja, apenas para a oferta que venceu um funil que descarta ~99% do
+         * que a API devolve. Daí o "monitorando (2 leituras de 3)" na tela.
+         *
+         * Best-effort de propósito: o monitor é observador, não parte do
+         * caminho crítico. Se ele falhar, a varredura — que é o que alimenta a
+         * correlação — não pode cair junto.
+         */
+        try {
+          const r = await registrarLeituras(
+            linhas.map((l) => ({
+              productId: l.productId,
+              shopId: l.shopId,
+              price: l.price,
+              title: l.title,
+              imageUrl: l.imageUrl,
+              catRaiz: l.catRaiz,
+            })),
+            'varredura',
+          );
+          stats.precoGravados = (stats.precoGravados ?? 0) + r.gravadas;
+        } catch (err) {
+          log.warn('monitor de preços não registrou este lote', {
+            keyword,
+            err: err instanceof Error ? err.message : String(err),
+          });
         }
       } catch (err) {
         if (isErroSistemico(err)) {

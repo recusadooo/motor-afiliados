@@ -29,6 +29,10 @@ import {
 import { redeDeGrupos, nichoDosGrupos } from './intel/rede';
 import { sincronizarCategorias, categoriasGuardadas, semearEtiquetas, normalizarEtiqueta } from './shopee/categorias';
 import { comCache, limparCache, TTL_GRUPOS } from './cache';
+import {
+  melhoresOportunidades, estatisticas, resumoMonitor, backfill, JANELAS,
+  ondeApareceu, historicoDiario,
+} from './monitor/precos';
 
 /**
  * API do backend (roda no VPS). Serve:
@@ -832,6 +836,52 @@ app.delete('/api/intel/etiquetas/:id', wrap(async (req: Request, res: Response) 
   res.json({ ok: true });
 }));
 
+/* ==================== MONITOR DE PREÇOS ==================== */
+
+/**
+ * MELHORES OPORTUNIDADES — cada item comparado com o PRÓPRIO passado.
+ *
+ * ⚠️ Este número NÃO entra no critério de disparo hoje. Decisão do dono: o
+ * monitor amadurece observando, e com poucos dias de histórico qualquer
+ * afirmação seria ruído com cara de informação. A rota é de leitura.
+ */
+app.get('/api/precos/oportunidades', wrap(async (req: Request, res: Response) => {
+  const [linhas, resumo] = await Promise.all([
+    melhoresOportunidades({
+      dias: Number(req.query.dias) || 90,
+      limite: Number(req.query.limite) || 40,
+      soConfiavel: String(req.query.confiavel ?? '') === '1',
+      categoria: req.query.categoria ? String(req.query.categoria) : undefined,
+    }),
+    resumoMonitor(),
+  ]);
+  res.json({ janelas: JANELAS, resumo, oportunidades: linhas });
+}));
+
+/** A ficha de um produto: série + estatística na janela pedida. */
+app.get('/api/precos/produto/:id', wrap(async (req: Request, res: Response) => {
+  const dias = Math.max(7, Math.min(365, Number(req.query.dias) || 90));
+  /*
+   * O log de mudanças (`serie()`) NÃO vai na resposta: a ficha desenha a linha
+   * a partir do `diario`, que já é uma função em degraus no MESMO eixo de tempo
+   * da faixa de cobertura. Mandar as duas séries fazia a tela buscar uma e
+   * descartar — e desenhar as duas em eixos diferentes, empilhadas, afirmaria
+   * um alinhamento temporal que não existe.
+   */
+  const [est, diario, onde] = await Promise.all([
+    estatisticas(req.params.id!, dias),
+    historicoDiario(req.params.id!, dias),
+    ondeApareceu(req.params.id!, dias),
+  ]);
+  if (!est) return res.status(404).json({ error: 'produto não está no monitor' });
+  res.json({ ...est, diario, ...onde });
+}));
+
+/** Traz para o histórico o que já foi observado antes de o monitor existir. */
+app.post('/api/precos/backfill', wrap(async (_req: Request, res: Response) => {
+  res.json(await backfill());
+}));
+
 /** Baixa a árvore oficial de categorias da Shopee (público, sem credencial). */
 app.post('/api/shopee/categorias/sync', wrap(async (_req: Request, res: Response) => {
   try {
@@ -1423,8 +1473,8 @@ app.get('/api/intel/profile', wrap(async (req: Request, res: Response) => {
  * intactos — só o que NÃO é rota de API cai no index.html.
  */
 const ABAS = [
-  '/', '/fila', '/feed', '/conexoes', '/config', '/falhas', '/ciclos',
-  '/inteligencia', '/grupos',
+  '/', '/fila', '/feed', '/feed/monitor', '/conexoes', '/config', '/falhas',
+  '/ciclos', '/inteligencia', '/grupos',
 ];
 app.get(ABAS, (_req: Request, res: Response) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));

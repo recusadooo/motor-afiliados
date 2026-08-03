@@ -513,3 +513,79 @@ CREATE TABLE IF NOT EXISTS etiquetas_grupo (
 
 ALTER TABLE intel_groups ADD COLUMN IF NOT EXISTS etiqueta_id BIGINT REFERENCES etiquetas_grupo(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_intel_groups_etiqueta ON intel_groups (etiqueta_id);
+
+-- ============================================================
+-- MONITOR DE PREÇOS
+-- ============================================================
+-- Tabela NOVA em vez de estender `price_history` por uma razão operacional:
+-- `migrate.ts` manda este arquivo INTEIRO numa query só, em transação
+-- implícita. Um DDL que falhe (ex.: criar UNIQUE numa tabela que já tem
+-- duplicata) derruba o schema todo e põe o worker em crash loop. Tabela nova
+-- nasce com as restrições certas, sem risco.
+--
+-- LOG DE MUDANÇA, não log de amostra: uma linha só quando o preço MUDA
+-- (mais um batimento diário para provar que a série está viva). A diferença
+-- medida: ~163 MB/mês gravando toda leitura contra ~2,2 MB/mês gravando
+-- mudança. Com 27 MB/ano o histórico nunca precisa ser podado — que é o que
+-- torna "deixar rodar um ano" viável de verdade.
+--
+-- E o dado fica MELHOR: com mudança dá para calcular a média ponderada pelo
+-- TEMPO em que cada preço vigorou. Com amostra, o "preço normal" depende de
+-- quantas vezes o nosso coletor passou por ali, que varia com quantas
+-- keywords trouxeram o produto — ou seja, o número dependeria de um artefato
+-- nosso, não do mercado.
+CREATE TABLE IF NOT EXISTS price_points (
+  id          BIGSERIAL PRIMARY KEY,
+  platform    TEXT NOT NULL DEFAULT 'shopee',
+  product_id  TEXT NOT NULL,
+  shop_id     TEXT,
+  -- O preço do ITEM (campo `price` da API). NÃO é `priceMin`: aquele é o piso
+  -- da faixa de variações, e cai sozinho quando o vendedor pendura um acessório
+  -- barato no mesmo anúncio.
+  price       NUMERIC(12,2) NOT NULL,
+  -- A faixa, guardada para detectar exatamente essa armadilha: se a largura
+  -- mudar muito entre leituras, provavelmente entrou variação nova e o
+  -- "recorde" não é recorde.
+  price_min   NUMERIC(12,2),
+  price_max   NUMERIC(12,2),
+  fonte       TEXT NOT NULL DEFAULT 'varredura'
+              CHECK (fonte IN ('varredura','captura','backfill','manual')),
+  observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Idempotência: rodar o backfill duas vezes não duplica.
+  UNIQUE (platform, product_id, observed_at)
+);
+CREATE INDEX IF NOT EXISTS idx_pp_produto ON price_points (platform, product_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pp_tempo   ON price_points (observed_at DESC);
+
+-- Estado corrente por produto: uma linha por produto, já agregada.
+-- Existe para o painel NÃO ter que agregar o log cru a cada requisição — é o
+-- erro que o feed de ofertas comete hoje (LEFT JOIN LATERAL sobre todo o
+-- price_history, sem janela) e que fica caro quando a tabela cresce.
+CREATE TABLE IF NOT EXISTS price_state (
+  platform      TEXT NOT NULL DEFAULT 'shopee',
+  product_id    TEXT NOT NULL,
+  shop_id       TEXT,
+  title         TEXT,
+  image_url     TEXT,
+  cat_raiz      TEXT,
+  preco_atual   NUMERIC(12,2),
+  preco_min     NUMERIC(12,2),   -- mínimo de toda a série
+  preco_max     NUMERIC(12,2),
+  primeiro_em   TIMESTAMPTZ,
+  ultimo_em     TIMESTAMPTZ,
+  mudancas      INT NOT NULL DEFAULT 0,
+  /*
+   * COBERTURA em 8 bytes: bit i = "houve observação no dia (hoje - i)",
+   * cobrindo 63 dias. `bit_count()` existe no Postgres 16 (é o servidor deste
+   * projeto). A alternativa — uma tabela (produto, dia) — seria correta e
+   * custaria centenas de MB/mês só para dizer "eu vi".
+   *
+   * Cobertura é o que separa "menor preço em 42 dias" de uma afirmação vazia:
+   * sem ela, um produto visto 3 vezes numa tarde alegaria recorde do ano.
+   */
+  dias_mask     BIGINT NOT NULL DEFAULT 0,
+  dias_mask_em  DATE,
+  PRIMARY KEY (platform, product_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ps_ultimo ON price_state (ultimo_em DESC);
+CREATE INDEX IF NOT EXISTS idx_ps_cat    ON price_state (cat_raiz);

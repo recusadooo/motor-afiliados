@@ -19,6 +19,13 @@ export interface NormalizedOffer {
   price: number | null;
   originalPrice: number | null;
   discountPct: number | null;
+  /**
+   * A FAIXA de variações do anúncio. Guardada junto com `price` porque é o
+   * único jeito de detectar que uma variação nova entrou — e variação nova
+   * derrubando o piso é o falso "recorde histórico" mais provável.
+   */
+  priceMin?: number | null;
+  priceMax?: number | null;
   /** IDs de categoria oficiais da Shopee (l1-l3). Só ids; o nome vem da árvore. */
   catIds?: number[] | null;
   savingsBrl: number | null;

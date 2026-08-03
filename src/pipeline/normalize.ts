@@ -13,8 +13,15 @@ import { toNum, normalizeText, sha256hex } from '../util';
  *  - offerLink: JÁ é o link de afiliado curto (usável direto)
  */
 export function normalizeProduct(node: ProductOfferNode): NormalizedOffer {
-  const price = toNum(node.priceMin);
+  /*
+   * `price` primeiro, `priceMin` só como reserva. Ver a nota em
+   * `shopee/types.ts`: monitorar `priceMin` é monitorar a variação mais barata
+   * do anúncio, não o produto — e é a origem mais provável de falso recorde
+   * num histórico longo.
+   */
+  const priceMin = toNum(node.priceMin);
   const priceMax = toNum(node.priceMax);
+  const price = toNum(node.price) ?? priceMin;
   const advertisedDiscount = toNum(node.priceDiscountRate); // % anunciado (inflado)
 
   return {
@@ -30,6 +37,8 @@ export function normalizeProduct(node: ProductOfferNode): NormalizedOffer {
     commissionRate: toNum(node.commissionRate), // decimal 0.07
     category: null,
     // Ids crus: quem traduz é `shopee/categorias.ts`, que tem o mapa oficial.
+    priceMin,
+    priceMax,
     catIds: Array.isArray(node.productCatIds)
       ? node.productCatIds.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0)
       : null,
